@@ -11,16 +11,17 @@ Eigenständiger Growcontroller in Python 3 – ohne Node-RED, nur Standardbiblio
 
 ## Ausgangs-Typen (`config.json` → `outputs`)
 Jeder Ausgang hat `type` und optional `role` (Standard = Name). Rollen: `light`, `fan`, `heater`, `humidifier`,
-`dehumidifier`, `pump`, `vent` (folgt dem Lüfterbedarf). Mehrere Ausgänge mit derselben Rolle schalten gemeinsam.
+`dehumidifier`, `pump`, `vent` und `intake` (Abluft-Klappe/Zuluft, folgen dem Lüfterbedarf). Mehrere Ausgänge mit derselben Rolle schalten gemeinsam.
 
 | type | Zweck | wichtige Felder |
 |---|---|---|
 | `gpio` | Relais am Pi | `pin`, `active_low` |
-| `meross` | Meross-Steckdose (Cloud, `meross-iot`) | `device` (Name oder UUID), `channel`; Zugang im Block `meross` |
-| `tuya` | Tuya-Entfeuchter lokal (`tinytuya`) | `dev_id`, `local_key`, `address`, `version`, `dp`, `on_dps` |
+| `meross_local` | Meross-Steckdose im LAN, nur `ip` + `key` (keine Zusatzpakete) | `ip`, `key`, `channel` |
+| `meross` | Meross-Steckdose über die Cloud (`meross-iot`) | `device` (Name oder UUID), `channel`; Zugang im Block `meross` |
+| `tuya` | Tuya-Entfeuchter lokal (`tinytuya`) | `dev_id`, `local_key`, `address` (`Auto`), `version` (`auto`), `dp`, `value_on`, `value_off` |
 | `mqtt_servo` | Servo/Klappe per MQTT | `topic`, `angle_on`, `angle_off`, `payload` (`"{angle}"` oder JSON-Vorlage); Broker im Block `mqtt` |
 
-Zugangsdaten als `${MEROSS_PASSWORD}`, `${TUYA_LOCAL_KEY}` usw. schreiben und als Umgebungsvariablen setzen
+Geheimnisse: `.env.example` nach `.env` kopieren (nie committen). Zugangsdaten als `${MEROSS_PASSWORD}`, `${TUYA_LOCAL_KEY}` usw. schreiben und als Umgebungsvariablen setzen
 (beim systemd-Dienst per `EnvironmentFile=`). Tuya `local_key`/DPs: `python3 -m tinytuya wizard`.
 Netzwerk-Ausgänge senden im Hintergrund mit Wiederholung (alle 10 s bei Fehler, Auffrischen alle 60 s); in der Oberfläche
 zeigt ein ⚠ einen nicht erreichbaren Ausgang. Ist ein Gerät beim Start nicht verfügbar, läuft der Rest weiter.

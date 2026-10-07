@@ -12,7 +12,7 @@ button{background:#2d3742;color:#e6e6e6;border:0;padding:6px 10px;margin-left:4p
 <div class=r><div class=c><b id=t>–</b>°C</div><div class=c><b id=h>–</b>% rF</div></div>
 <div id=outs></div><canvas id=g width=640 height=140></canvas>
 <script>
-const tok=localStorage.tok||'';const L={light:'Licht',fan:'Lüfter',heater:'Heizung',humidifier:'Befeuchter',dehumidifier:'Entfeuchter',pump:'Pumpe',vent_servo:'Lüftungsklappe'};
+const tok=localStorage.tok||'';const L={light:'Licht',fan:'Lüfter',heater:'Heizung',humidifier:'Befeuchter',dehumidifier:'Entfeuchter',pump:'Pumpe',abluft_servo:'Abluft-Servo',zuluft:'Zuluft'};
 async function post(n,m){const r=await fetch('/api/output/'+n,{method:'POST',headers:{'X-Token':localStorage.tok||''},body:JSON.stringify({mode:m})});
  if(r.status==401){localStorage.tok=prompt('Token')||'';} refresh();}
 async function refresh(){const s=await (await fetch('/api/status')).json();

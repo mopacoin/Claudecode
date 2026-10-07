@@ -92,6 +92,8 @@ def _make_backend(typ, c, cfg, gpio, hub):
         m = cfg["meross"]
         h = hub("meross", lambda: backends.MerossHub(m["email"], m["password"], m.get("api_base_url", "https://iotx-eu.meross.com")))
         return backends.MerossBackend(h, **c)
+    if typ == "meross_local":
+        return backends.MerossLocalBackend(**c)
     if typ == "tuya":
         return backends.TuyaBackend(**c)
     if typ == "mqtt_servo":

@@ -13,8 +13,9 @@
   },
   "outputs": {
     "light": {
-      "type": "meross",
-      "device": "Growlicht",
+      "type": "gpio",
+      "pin": 17,
+      "active_low": true,
       "min_switch_s": 30
     },
     "fan": {
@@ -24,8 +25,9 @@
       "min_switch_s": 30
     },
     "heater": {
-      "type": "meross",
-      "device": "Heizung",
+      "type": "gpio",
+      "pin": 22,
+      "active_low": true,
       "min_switch_s": 60
     },
     "humidifier": {
@@ -34,29 +36,38 @@
       "active_low": true,
       "min_switch_s": 60
     },
-    "dehumidifier": {
-      "type": "tuya",
-      "dev_id": "TUYA_DEVICE_ID",
-      "local_key": "${TUYA_LOCAL_KEY}",
-      "address": "Auto",
-      "version": 3.4,
-      "dp": 1,
-      "on_dps": {},
-      "min_switch_s": 120
-    },
     "pump": {
       "type": "gpio",
       "pin": 24,
       "active_low": true,
       "max_on_s": 120
     },
-    "vent_servo": {
+    "dehumidifier": {
+      "type": "tuya",
+      "dev_id": "bfcd6f992aa79104ddbt0w",
+      "local_key": "${TUYA_LOCAL_KEY}",
+      "address": "Auto",
+      "version": "auto",
+      "dp": 2,
+      "value_on": 30,
+      "value_off": 65,
+      "min_switch_s": 120
+    },
+    "zuluft": {
+      "type": "meross_local",
+      "role": "intake",
+      "ip": "192.168.178.34",
+      "key": "${MEROSS_KEY}",
+      "min_switch_s": 30
+    },
+    "abluft_servo": {
       "type": "mqtt_servo",
       "role": "vent",
-      "topic": "grow/vent/set",
+      "topic": "servo/sg92r/set",
       "angle_on": 90,
       "angle_off": 0,
-      "payload": "{angle}"
+      "payload": "{\"angle\": {angle}}",
+      "retain": false
     }
   },
   "light": {
@@ -79,13 +90,8 @@
     "from_hour": 6,
     "to_hour": 22
   },
-  "meross": {
-    "email": "${MEROSS_EMAIL}",
-    "password": "${MEROSS_PASSWORD}",
-    "api_base_url": "https://iotx-eu.meross.com"
-  },
   "mqtt": {
-    "host": "localhost",
+    "host": "127.0.0.1",
     "port": 1883,
     "username": null,
     "password": null

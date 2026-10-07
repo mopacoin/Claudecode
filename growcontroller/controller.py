@@ -83,7 +83,7 @@ class Controller:
                 want.update(rules.climate(self.cfg["climate"], day, self.readings.get("temp"),
                                           self.readings.get("hum"), cur, now, self.has_dehum))
             want["pump"] = self._pump(now)
-            want["vent"] = want["fan"]  # Lüftungsklappe folgt dem Lüfterbedarf
+            want["vent"] = want["intake"] = want["fan"]  # Abluft-Klappe und Zuluft folgen dem Lüfterbedarf
             for o in self.outs.values():
                 o.apply(want.get(o.role, False))
             self._record(now, day)

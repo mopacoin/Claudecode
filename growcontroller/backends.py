@@ -1,8 +1,13 @@
 """Schalt-Backends. Netzwerk-Backends senden in einem eigenen Thread mit Wiederholung,
 damit die Regelschleife nie auf Cloud/LAN/Broker warten muss."""
 import asyncio
+import hashlib
+import json
 import logging
 import threading
+import time
+import urllib.request
+import uuid
 
 log = logging.getLogger("grow.backend")
 
@@ -123,24 +128,70 @@ class MerossBackend(WorkerBackend):
         self.hub.set(self.device, self.channel, on)
 
 
-class TuyaBackend(WorkerBackend):
-    """Tuya-Gerät im lokalen Netz (tinytuya). on_dps: zusätzliche Datenpunkte beim Einschalten,
-    z. B. {"4": 55} für Ziel-Feuchte – DP-Nummern per `python3 -m tinytuya wizard` ermitteln."""
+class MerossLocalBackend(WorkerBackend):
+    """Meross-Steckdose im LAN (HTTP, signiert mit dem Geräte-Key) – wie node-red-contrib-meross
+    `smartplug-control`. Kein Cloud-Zugriff nötig."""
 
-    def __init__(self, dev_id, local_key, address="Auto", version=3.3, dp=1, on_dps=None, **kw):
-        import tinytuya
-        self.dev = tinytuya.Device(dev_id, address, local_key, version=version)
-        self.dev.set_socketPersistent(False)
-        self.dp, self.on_dps = int(dp), {int(k): v for k, v in (on_dps or {}).items()}
+    def __init__(self, ip, key, channel=0, timeout_s=5, **kw):
+        self.ip, self.key, self.channel, self.timeout_s = ip, key, channel, timeout_s
         super().__init__(**kw)
 
+    def _call(self, namespace, payload):
+        mid = uuid.uuid4().hex
+        ts = int(time.time())
+        body = {"header": {"messageId": mid, "namespace": namespace, "method": "SET", "payloadVersion": 1,
+                           "from": f"http://{self.ip}/config", "timestamp": ts, "timestampMs": 0,
+                           "sign": hashlib.md5(f"{mid}{self.key}{ts}".encode()).hexdigest(), "triggerSrc": "Android"},
+                "payload": payload}
+        req = urllib.request.Request(f"http://{self.ip}/config", json.dumps(body).encode(),
+                                     {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=self.timeout_s) as r:
+            resp = json.load(r)
+        if resp.get("header", {}).get("method") == "ERROR":
+            raise RuntimeError(f"Meross {namespace}: {resp.get('payload')}")
+
     def _send(self, on):
-        dps = {self.dp: bool(on)}
-        if on:
-            dps.update(self.on_dps)
-        res = self.dev.set_multiple_values(dps) if len(dps) > 1 else self.dev.set_value(self.dp, bool(on))
-        if isinstance(res, dict) and res.get("Error"):
-            raise RuntimeError(f"Tuya: {res['Error']}")
+        try:
+            self._call("Appliance.Control.ToggleX", {"togglex": {"channel": self.channel, "onoff": int(on)}})
+        except RuntimeError:  # ältere Einkanal-Stecker kennen nur Toggle
+            self._call("Appliance.Control.Toggle", {"toggle": {"onoff": int(on)}})
+
+
+class TuyaBackend(WorkerBackend):
+    """Tuya-Gerät im lokalen Netz (tinytuya). Das Gerät wird erst im Worker-Thread aufgebaut
+    (address "Auto" scannt das LAN, das dauert). Zwei Betriebsarten:
+      - Schalter-DP: dp=1 (value_on/value_off weglassen -> true/false)
+      - Wert-DP wie beim Entfeuchter-Trick: dp=2, value_on=30, value_off=65 (Ziel-Feuchte)
+    version: Zahl (3.3/3.4/3.5) oder "auto" (probiert der Reihe nach)."""
+
+    def __init__(self, dev_id, local_key, address="Auto", version="auto", dp=1,
+                 value_on=True, value_off=False, **kw):
+        self.cfg = (dev_id, address, local_key)
+        self.versions = [3.3, 3.4, 3.5, 3.2] if version == "auto" else [float(version)]
+        self.dp, self.value_on, self.value_off = int(dp), value_on, value_off
+        self.dev = None
+        super().__init__(**kw)
+
+    def _device(self, version):
+        import tinytuya
+        d = tinytuya.Device(*self.cfg, version=version)
+        d.set_socketPersistent(False)
+        return d
+
+    def _send(self, on):
+        value = self.value_on if on else self.value_off
+        errors = []
+        for v in ([self.versions[0]] if self.dev else self.versions):
+            dev = self.dev or self._device(v)
+            res = dev.set_value(self.dp, value)
+            if isinstance(res, dict) and res.get("Error"):
+                errors.append(f"v{v}: {res['Error']}")
+                self.dev = None
+                continue
+            self.dev = dev
+            self.versions = [v]  # funktionierende Version merken
+            return
+        raise RuntimeError("Tuya: " + "; ".join(errors))
 
 
 class MqttHub:

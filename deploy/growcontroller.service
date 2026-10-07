@@ -1,0 +1,13 @@
+[Unit]
+Description=Growcontroller
+After=network.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/Claudecode
+ExecStart=/usr/bin/python3 -m growcontroller -c config.json --data data
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

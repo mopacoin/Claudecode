@@ -1,0 +1,29 @@
+<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Growcontroller</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#14181c;color:#e6e6e6;max-width:640px;margin:auto}
+.r{display:flex;gap:12px}.c{flex:1;background:#1f262d;border-radius:10px;padding:12px;text-align:center}
+.c b{font-size:2em;display:block}.o{display:flex;align-items:center;justify-content:space-between;background:#1f262d;border-radius:10px;padding:10px 12px;margin:8px 0}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#555;margin-right:8px}.on .dot{background:#4caf50}
+button{background:#2d3742;color:#e6e6e6;border:0;padding:6px 10px;margin-left:4px;border-radius:6px}button.a{background:#2e7d32}
+#w{color:#ff9800}canvas{width:100%;height:140px;background:#1f262d;border-radius:10px;margin-top:8px}
+</style>
+<h1>🌱 Growcontroller</h1><div id=w></div>
+<div class=r><div class=c><b id=t>–</b>°C</div><div class=c><b id=h>–</b>% rF</div></div>
+<div id=outs></div><canvas id=g width=640 height=140></canvas>
+<script>
+const tok=localStorage.tok||'';const L={light:'Licht',fan:'Lüfter',heater:'Heizung',humidifier:'Befeuchter',pump:'Pumpe'};
+async function post(n,m){const r=await fetch('/api/output/'+n,{method:'POST',headers:{'X-Token':localStorage.tok||''},body:JSON.stringify({mode:m})});
+ if(r.status==401){localStorage.tok=prompt('Token')||'';} refresh();}
+async function refresh(){const s=await (await fetch('/api/status')).json();
+ t.textContent=s.readings.temp??'–';h.textContent=s.readings.hum??'–';
+ w.textContent=s.stale?'⚠ Sensordaten veraltet – Failsafe aktiv':'';
+ outs.innerHTML=Object.entries(s.outputs).map(([n,o])=>`<div class="o ${o.state?'on':''}"><span><span class=dot></span>${L[n]||n}</span><span>`+
+  ['auto','on','off'].map(m=>`<button class="${o.mode==m?'a':''}" onclick="post('${n}','${m}')">${m}</button>`).join('')+'</span></div>').join('');
+ const hist=await (await fetch('/api/history')).json();draw(hist);}
+function draw(d){const c=g.getContext('2d');c.clearRect(0,0,640,140);
+ [['temp','#ff7043'],['hum','#42a5f5']].forEach(([k,col])=>{const v=d.map(x=>x[k]).filter(x=>x!=null);if(v.length<2)return;
+  const lo=Math.min(...v)-1,hi=Math.max(...v)+1;c.strokeStyle=col;c.beginPath();
+  v.forEach((y,i)=>{const X=i/(v.length-1)*640,Y=135-(y-lo)/(hi-lo)*130;i?c.lineTo(X,Y):c.moveTo(X,Y)});c.stroke();});}
+refresh();setInterval(refresh,5000);
+</script></html>

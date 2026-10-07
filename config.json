@@ -1,22 +1,93 @@
 {
   "interval_s": 5,
   "sensor_timeout_s": 120,
-  "web": {"host": "0.0.0.0", "port": 8080, "token": null},
+  "web": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "token": null
+  },
   "sensors": {
-    "air": {"driver": "sim"}
+    "air": {
+      "driver": "sim"
+    }
   },
   "outputs": {
-    "light":      {"pin": 17, "active_low": true},
-    "fan":        {"pin": 27, "active_low": true, "min_switch_s": 30},
-    "heater":     {"pin": 22, "active_low": true, "min_switch_s": 60},
-    "humidifier": {"pin": 23, "active_low": true, "min_switch_s": 60},
-    "pump":       {"pin": 24, "active_low": true, "max_on_s": 120}
+    "light": {
+      "type": "meross",
+      "device": "Growlicht",
+      "min_switch_s": 30
+    },
+    "fan": {
+      "type": "gpio",
+      "pin": 27,
+      "active_low": true,
+      "min_switch_s": 30
+    },
+    "heater": {
+      "type": "meross",
+      "device": "Heizung",
+      "min_switch_s": 60
+    },
+    "humidifier": {
+      "type": "gpio",
+      "pin": 23,
+      "active_low": true,
+      "min_switch_s": 60
+    },
+    "dehumidifier": {
+      "type": "tuya",
+      "dev_id": "TUYA_DEVICE_ID",
+      "local_key": "${TUYA_LOCAL_KEY}",
+      "address": "Auto",
+      "version": 3.4,
+      "dp": 1,
+      "on_dps": {},
+      "min_switch_s": 120
+    },
+    "pump": {
+      "type": "gpio",
+      "pin": 24,
+      "active_low": true,
+      "max_on_s": 120
+    },
+    "vent_servo": {
+      "type": "mqtt_servo",
+      "role": "vent",
+      "topic": "grow/vent/set",
+      "angle_on": 90,
+      "angle_off": 0,
+      "payload": "{angle}"
+    }
   },
-  "light": {"on": "06:00", "off": "00:00"},
+  "light": {
+    "on": "06:00",
+    "off": "00:00"
+  },
   "climate": {
-    "temp_day": 25, "temp_night": 20, "temp_hyst": 1.0,
-    "hum_day": 60, "hum_night": 55, "hum_hyst": 5,
+    "temp_day": 25,
+    "temp_night": 20,
+    "temp_hyst": 1.0,
+    "hum_day": 60,
+    "hum_night": 55,
+    "hum_hyst": 5,
     "fan_min_per_hour": 5
   },
-  "irrigation": {"enabled": true, "interval_min": 720, "duration_s": 30, "from_hour": 6, "to_hour": 22}
+  "irrigation": {
+    "enabled": true,
+    "interval_min": 720,
+    "duration_s": 30,
+    "from_hour": 6,
+    "to_hour": 22
+  },
+  "meross": {
+    "email": "${MEROSS_EMAIL}",
+    "password": "${MEROSS_PASSWORD}",
+    "api_base_url": "https://iotx-eu.meross.com"
+  },
+  "mqtt": {
+    "host": "localhost",
+    "port": 1883,
+    "username": null,
+    "password": null
+  }
 }

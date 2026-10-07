@@ -18,7 +18,8 @@ class Controller:
         self.state_dir = state_dir
         os.makedirs(state_dir, exist_ok=True)
         self.sensors = {n: sensors.create(c) for n, c in cfg["sensors"].items()}
-        self.gpio, self.outs = outputs.create_all(cfg["outputs"])
+        self.gpio, self.outs, self.hubs = outputs.create_all(cfg)
+        self.has_dehum = any(o.role == "dehumidifier" for o in self.outs.values())
         self.readings = {}
         self.last_ok = None
         self.history = deque(maxlen=2880)  # ~4 h bei 5 s
@@ -71,17 +72,20 @@ class Controller:
         with self.lock:
             self.read_sensors()
             day = rules.light_on(self.cfg["light"], now)
-            cur = {n: o.state for n, o in self.outs.items()}
+            cur = {}
+            for o in self.outs.values():
+                cur[o.role] = cur.get(o.role, False) or o.state
             want = {"light": day}
             if self.stale():
                 # Failsafe: ohne Messwerte Klima-Aktoren aus, Lüfter bleibt zyklisch an
-                want.update(heater=False, humidifier=False, fan=now.minute < 10)
+                want.update(heater=False, humidifier=False, dehumidifier=False, fan=now.minute < 10)
             else:
                 want.update(rules.climate(self.cfg["climate"], day, self.readings.get("temp"),
-                                          self.readings.get("hum"), cur, now))
+                                          self.readings.get("hum"), cur, now, self.has_dehum))
             want["pump"] = self._pump(now)
-            for n, o in self.outs.items():
-                o.apply(want.get(n, False))
+            want["vent"] = want["fan"]  # Lüftungsklappe folgt dem Lüfterbedarf
+            for o in self.outs.values():
+                o.apply(want.get(o.role, False))
             self._record(now, day)
 
     def _pump(self, now):
@@ -114,7 +118,7 @@ class Controller:
         with self.lock:
             return {"time": datetime.now().isoformat(timespec="seconds"), "readings": self.readings,
                     "stale": self.stale(), "last_irrigation": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),
-                    "outputs": {n: {"state": o.state, "mode": o.mode} for n, o in self.outs.items()}}
+                    "outputs": {n: {"state": o.state, "mode": o.mode, "role": o.role, "ok": getattr(o.backend, "healthy", True)} for n, o in self.outs.items()}}
 
     def set_mode(self, name, mode):
         if name not in self.outs or mode not in ("auto", "on", "off"):
@@ -133,5 +137,10 @@ class Controller:
 
     def shutdown(self):
         for o in self.outs.values():
-            o.force_off()
-        self.gpio.cleanup()
+            o.shutdown()
+        for o in self.outs.values():
+            o.backend.close()
+        for h in self.hubs.values():
+            h.close()
+        if self.gpio:
+            self.gpio.cleanup()

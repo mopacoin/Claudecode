@@ -35,3 +35,12 @@ class T(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDehum(unittest.TestCase):
+    def test_dehumidifier_replaces_wet_fan(self):
+        now = datetime(2026, 1, 1, 12, 30)
+        r = rules.climate(CL, True, 25, 70, {**OFF, "dehumidifier": False}, now, has_dehum=True)
+        self.assertTrue(r["dehumidifier"]); self.assertFalse(r["fan"]); self.assertFalse(r["humidifier"])
+        r = rules.climate(CL, True, 25, 70, OFF, now, has_dehum=False)
+        self.assertTrue(r["fan"])

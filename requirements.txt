@@ -1,5 +1,8 @@
-# Nur für echte Hardware (auf dem Pi): je nach Sensor
+# Nur für echte Hardware (auf dem Pi): je nach Bedarf
 RPi.GPIO
 adafruit-circuitpython-dht   # DHT22
 smbus2                       # BME280
 bme280                       # BME280
+meross-iot                   # Meross-Steckdosen (Cloud)
+tinytuya                     # Tuya-Geräte (lokal)
+paho-mqtt                    # Servo/Aktoren über MQTT

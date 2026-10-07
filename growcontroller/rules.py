@@ -1,4 +1,5 @@
 """Reine Regellogik (ohne Hardware) – einfach testbar."""
+import math
 from datetime import datetime, time as dtime
 
 
@@ -59,3 +60,25 @@ def irrigation_due(cfg, last_run, now):
     if not (cfg.get("from_hour", 0) <= h < cfg.get("to_hour", 24)):
         return False
     return last_run is None or (now - last_run).total_seconds() >= cfg["interval_min"] * 60
+
+
+def svp(t):
+    """Sättigungsdampfdruck in kPa (Tetens)."""
+    return 0.6108 * math.exp(17.27 * t / (t + 237.3))
+
+
+def vpd(temp, hum, leaf_offset=-2.0):
+    """Blatt-VPD in kPa: SVP(Blatttemperatur) - tatsächlicher Dampfdruck der Luft."""
+    if temp is None or hum is None:
+        return None
+    return round(max(0.0, svp(temp + leaf_offset) - hum / 100 * svp(temp)), 2)
+
+
+def rh_for_vpd(temp, target, leaf_offset=-2.0):
+    """Relative Feuchte, bei der die Luft bei `temp` das Ziel-VPD ergibt."""
+    rh = (svp(temp + leaf_offset) - target) / svp(temp) * 100
+    return min(95.0, max(20.0, round(rh, 1)))
+
+
+def rh_delta_for_vpd(temp, delta):
+    return max(1.0, round(delta / svp(temp) * 100, 1))

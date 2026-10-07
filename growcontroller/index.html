@@ -1,29 +1,420 @@
-<!doctype html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Growcontroller</title>
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0e1411">
+<title>Growdashboard</title>
 <style>
-body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#14181c;color:#e6e6e6;max-width:640px;margin:auto}
-.r{display:flex;gap:12px}.c{flex:1;background:#1f262d;border-radius:10px;padding:12px;text-align:center}
-.c b{font-size:2em;display:block}.o{display:flex;align-items:center;justify-content:space-between;background:#1f262d;border-radius:10px;padding:10px 12px;margin:8px 0}
-.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#555;margin-right:8px}.on .dot{background:#4caf50}
-button{background:#2d3742;color:#e6e6e6;border:0;padding:6px 10px;margin-left:4px;border-radius:6px}button.a{background:#2e7d32}
-#w{color:#ff9800}canvas{width:100%;height:140px;background:#1f262d;border-radius:10px;margin-top:8px}
+:root{--bg:#0e1411;--panel:#16201b;--panel2:#1d2a23;--line:#2a3a31;--text:#e8efe9;--mute:#8fa597;
+--ok:#4caf6a;--warn:#f0a93b;--bad:#ef5350;--accent:#59c98a;--temp:#ff7a59;--hum:#4aa8ff;--vpd:#b684ff;--r:12px}
+@media(prefers-color-scheme:light){:root{--bg:#f2f5f2;--panel:#fff;--panel2:#eaf0eb;--line:#d5e0d8;--text:#17211b;--mute:#5d7064;
+--accent:#1f9d57;--temp:#e8522f;--hum:#1f7fd6;--vpd:#8b4fe0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:12px 16px;max-width:1100px;margin:auto}
+header h1{font-size:18px;margin:0;flex:1;white-space:nowrap}
+.pill{white-space:nowrap;padding:4px 10px;border-radius:99px;background:var(--panel2);color:var(--mute);font-size:13px;border:0;color:inherit;cursor:default}
+.pill.bad{background:var(--bad);color:#fff;cursor:pointer}.pill.ok{color:var(--ok)}
+nav{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+nav div{display:flex;gap:4px;max-width:1100px;margin:auto;padding:0 12px;overflow-x:auto}
+nav button{background:none;border:0;color:var(--mute);padding:12px 14px;font:inherit;border-bottom:3px solid transparent;white-space:nowrap;cursor:pointer}
+nav button.on{color:var(--text);border-color:var(--accent)}
+main{max-width:1100px;margin:auto;padding:16px}
+.tab{display:none}.tab.on{display:block}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.card h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+.big{font-size:40px;font-weight:700;line-height:1}.big small{font-size:16px;font-weight:500;color:var(--mute);margin-left:4px}
+.tile{border-left:5px solid var(--ok)}.tile.warn{border-color:var(--warn)}.tile.bad{border-color:var(--bad)}.tile.none{border-color:var(--line)}
+.sub{color:var(--mute);font-size:13px;margin-top:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.sp{flex:1}
+.banner{background:var(--bad);color:#fff;border-radius:var(--r);padding:10px 14px;margin-bottom:12px}
+.banner div+div{margin-top:2px}
+.zone{position:relative;height:10px;border-radius:5px;margin:10px 0 4px;background:linear-gradient(90deg,#4aa8ff 0 20%,#59c98a 20% 40%,#8bd36b 40% 60%,#f0a93b 60% 80%,#ef5350 80%)}
+.zone i{position:absolute;top:-4px;width:4px;height:18px;border-radius:2px;background:var(--text);transform:translateX(-2px)}
+.zlab{display:flex;justify-content:space-between;color:var(--mute);font-size:11px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:5px 11px;border-radius:99px;font:inherit;font-size:13px;cursor:pointer}
+.chip.on{background:var(--accent);color:#04140a;border-color:var(--accent)}
+.chip.s{border-left:4px solid var(--c)}
+.chart{position:relative}
+canvas{width:100%;display:block}
+#tip{position:absolute;pointer-events:none;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;display:none;white-space:nowrap;z-index:3}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:var(--panel2);border:0;color:var(--text);padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
+.seg button.on{background:var(--accent);color:#04140a}
+.seg button.on.off{background:var(--mute);color:var(--bg)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--line);margin-right:8px}
+.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}.dot.err{background:var(--bad)}
+.dev .name{font-weight:600;display:flex;align-items:center}
+.dev .info{color:var(--mute);font-size:12px;margin:4px 0 10px;overflow-wrap:anywhere}
+form .f{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+form .f:last-of-type{border:0}
+form label{font-size:14px}form .u{color:var(--mute);font-size:13px;margin-left:6px}
+form .err{grid-column:1/-1;color:var(--bad);font-size:12px}
+input,select{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:inherit;width:130px}
+input[type=checkbox]{width:42px;height:24px;appearance:none;background:var(--line);border-radius:12px;position:relative;cursor:pointer;padding:0;border:0}
+input[type=checkbox]::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.15s}
+input[type=checkbox]:checked{background:var(--accent)}input[type=checkbox]:checked::after{left:21px}
+button.pri{background:var(--accent);color:#04140a;border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+button.sec{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
+.hint{color:var(--mute);font-size:13px;margin:0 0 8px}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--mute);font-weight:600}
+.k-alarm{color:var(--bad)}.k-irrigation{color:var(--hum)}.k-settings,.k-mode{color:var(--warn)}
+.preset.cur{outline:2px solid var(--accent)}
+.preset ul{margin:6px 0 10px;padding-left:18px;color:var(--mute);font-size:13px}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:10px 18px;border-radius:99px;opacity:0;transition:.2s;pointer-events:none;z-index:9}
+#toast.show{opacity:1}#toast.bad{background:var(--bad);color:#fff}
+@media(max-width:560px){header{flex-wrap:wrap;gap:8px}header h1{flex-basis:100%}.big{font-size:34px}input,select{width:110px}}
 </style>
-<h1>🌱 Growcontroller</h1><div id=w></div>
-<div class=r><div class=c><b id=t>–</b>°C</div><div class=c><b id=h>–</b>% rF</div></div>
-<div id=outs></div><canvas id=g width=640 height=140></canvas>
+
+<header>
+  <h1>🌱 Growdashboard</h1>
+  <span class="pill" id="stagePill"></span>
+  <button class="pill ok" id="alarmPill">OK</button>
+  <span class="pill" id="clock"></span>
+</header>
+<nav><div id="nav"></div></nav>
+<main>
+  <section class="tab" id="tab-overview">
+    <div id="banner"></div>
+    <div class="grid" id="tiles"></div>
+    <div class="card" style="margin-top:12px"><h3>VPD-Bereich</h3><div class="zone"><i id="zmark"></i></div>
+      <div class="zlab"><span>0</span><span>0,4 Keimling</span><span>0,8 Wachstum</span><span>1,2 Blüte</span><span>1,6</span><span>2,0 kPa</span></div></div>
+    <div class="card" style="margin-top:12px">
+      <div class="row"><h3 class="sp" style="margin:0">Verlauf</h3><div class="chips" id="rangeChips"></div></div>
+      <div class="chips" id="seriesChips" style="margin:10px 0"></div>
+      <div class="chart"><canvas id="chart" height="230"></canvas><div id="tip"></div></div>
+      <h3 style="margin:14px 0 4px">Schaltzeiten</h3><canvas id="tl"></canvas>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-devices">
+    <p class="hint">Je Gerät: <b>Auto</b> = Regelung, <b>Ein</b>/<b>Aus</b> = manuell erzwungen (bleibt nach Neustart erhalten).</p>
+    <div class="grid" id="devices"></div>
+    <div class="card" style="margin-top:12px" id="irrCard"></div>
+  </section>
+
+  <section class="tab" id="tab-climate"><div id="f-climate" class="card"></div></section>
+  <section class="tab" id="tab-light"><div id="f-light" class="card"></div></section>
+  <section class="tab" id="tab-irrigation"><div id="f-irrigation" class="card"></div></section>
+  <section class="tab" id="tab-alarms">
+    <div class="card" id="alarmList" style="margin-bottom:12px"></div>
+    <div id="f-alarms" class="card"></div>
+  </section>
+  <section class="tab" id="tab-cycle">
+    <div id="f-grow" class="card" style="margin-bottom:12px"></div>
+    <p class="hint">Voreinstellungen setzen Temperatur, Feuchte, VPD und Lichtzeiten. Es sind Richtwerte – bitte an Sorte und Umgebung anpassen.</p>
+    <div class="grid" id="presets"></div>
+  </section>
+  <section class="tab" id="tab-system">
+    <div class="grid">
+      <div class="card"><h3>System</h3><div id="sys"></div></div>
+      <div class="card"><h3>Datenexport</h3><p class="hint">Verlauf als CSV (1 Wert pro Minute).</p>
+        <div class="chips" id="exports"></div></div>
+      <div class="card"><h3>Zugang</h3><p class="hint" id="authHint"></p><button class="sec" id="tokBtn">Token ändern</button></div>
+    </div>
+    <div class="card" style="margin-top:12px"><h3>Hardware</h3><div style="overflow-x:auto"><table id="hw"></table></div></div>
+    <div class="card" style="margin-top:12px"><div class="row"><h3 class="sp" style="margin:0">Ereignisprotokoll</h3><div class="chips" id="evChips"></div></div>
+      <div style="overflow-x:auto;margin-top:8px"><table id="events"></table></div></div>
+  </section>
+</main>
+<div id="toast"></div>
+
 <script>
-const tok=localStorage.tok||'';const L={light:'Licht',fan:'Lüfter',heater:'Heizung',humidifier:'Befeuchter',dehumidifier:'Entfeuchter',pump:'Pumpe',abluft_servo:'Abluft-Servo',zuluft:'Zuluft'};
-async function post(n,m){const r=await fetch('/api/output/'+n,{method:'POST',headers:{'X-Token':localStorage.tok||''},body:JSON.stringify({mode:m})});
- if(r.status==401){localStorage.tok=prompt('Token')||'';} refresh();}
-async function refresh(){const s=await (await fetch('/api/status')).json();
- t.textContent=s.readings.temp??'–';h.textContent=s.readings.hum??'–';
- w.textContent=s.stale?'⚠ Sensordaten veraltet – Failsafe aktiv':'';
- outs.innerHTML=Object.entries(s.outputs).map(([n,o])=>`<div class="o ${o.state?'on':''}"><span><span class=dot></span>${L[n]||n}${o.ok===false?' ⚠':''}</span><span>`+
-  ['auto','on','off'].map(m=>`<button class="${o.mode==m?'a':''}" onclick="post('${n}','${m}')">${m}</button>`).join('')+'</span></div>').join('');
- const hist=await (await fetch('/api/history')).json();draw(hist);}
-function draw(d){const c=g.getContext('2d');c.clearRect(0,0,640,140);
- [['temp','#ff7043'],['hum','#42a5f5']].forEach(([k,col])=>{const v=d.map(x=>x[k]).filter(x=>x!=null);if(v.length<2)return;
-  const lo=Math.min(...v)-1,hi=Math.max(...v)+1;c.strokeStyle=col;c.beginPath();
-  v.forEach((y,i)=>{const X=i/(v.length-1)*640,Y=135-(y-lo)/(hi-lo)*130;i?c.lineTo(X,Y):c.moveTo(X,Y)});c.stroke();});}
-refresh();setInterval(refresh,5000);
-</script></html>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const LABEL = {light: 'Licht', fan: 'Lüfter', heater: 'Heizung', humidifier: 'Befeuchter', dehumidifier: 'Entfeuchter',
+  pump: 'Pumpe', zuluft: 'Zuluft', abluft_servo: 'Abluft-Servo'};
+const STAGE = {seedling: 'Keimling', veg: 'Wachstum', flower: 'Blüte', late: 'Spätblüte', dry: 'Trocknung'};
+const TABS = [['overview', 'Übersicht'], ['devices', 'Geräte'], ['climate', 'Klima'], ['light', 'Licht'],
+  ['irrigation', 'Bewässerung'], ['alarms', 'Alarme'], ['cycle', 'Zyklus'], ['system', 'System']];
+const SERIES = [['temp', 'Temperatur', '°C', 'var(--temp)'], ['hum', 'Luftfeuchte', '%', 'var(--hum)'], ['vpd', 'VPD', 'kPa', 'var(--vpd)']];
+const RANGES = [['1h', '1 Std'], ['6h', '6 Std'], ['24h', '24 Std'], ['7d', '7 Tage']];
+
+// Formulare: Grenzen (min/max) kommen vom Server (SPEC), hier nur Beschriftung
+const FORMS = {
+  climate: {title: 'Klimaregelung', fields: [
+    {k: 'control', l: 'Regelmodus', t: 'select', o: [['temp_hum', 'Temperatur + Luftfeuchte'], ['vpd', 'VPD (Dampfdruckdefizit)']]},
+    {k: 'temp_day', l: 'Temperatur Tag', u: '°C', step: .5}, {k: 'temp_night', l: 'Temperatur Nacht', u: '°C', step: .5},
+    {k: 'temp_hyst', l: 'Temperatur-Hysterese', u: '±°C', step: .1},
+    {k: 'hum_day', l: 'Luftfeuchte Tag', u: '%', step: 1, show: ['control', 'temp_hum']},
+    {k: 'hum_night', l: 'Luftfeuchte Nacht', u: '%', step: 1, show: ['control', 'temp_hum']},
+    {k: 'hum_hyst', l: 'Feuchte-Hysterese', u: '±%', step: 1, show: ['control', 'temp_hum']},
+    {k: 'vpd_day', l: 'VPD Tag', u: 'kPa', step: .05, show: ['control', 'vpd']},
+    {k: 'vpd_night', l: 'VPD Nacht', u: 'kPa', step: .05, show: ['control', 'vpd']},
+    {k: 'vpd_hyst', l: 'VPD-Hysterese', u: '±kPa', step: .05, show: ['control', 'vpd']},
+    {k: 'leaf_offset', l: 'Blatt-Temperaturversatz', u: '°C', step: .5},
+    {k: 'fan_min_per_hour', l: 'Lüfter-Grundlauf pro Stunde', u: 'min', step: 1}],
+   hint: 'Im VPD-Modus rechnet der Controller das Ziel-VPD bei der aktuellen Temperatur in eine Feuchte-Vorgabe um. Der Blattversatz (meist −1…−3 °C) gibt an, wie viel kühler die Blattoberfläche als die Luft ist.'},
+  light: {title: 'Licht', fields: [
+    {k: 'enabled', l: 'Lichtzeitplan aktiv', t: 'bool'}, {k: 'on', l: 'Licht an', t: 'time'}, {k: 'off', l: 'Licht aus', t: 'time'}],
+   hint: 'Licht-aus < Licht-an läuft über Mitternacht. Der Tag/Nacht-Wechsel steuert auch die Klima-Sollwerte.', photo: true},
+  irrigation: {title: 'Bewässerung', fields: [
+    {k: 'enabled', l: 'Automatische Bewässerung', t: 'bool'}, {k: 'interval_min', l: 'Intervall', u: 'min', step: 1},
+    {k: 'duration_s', l: 'Pumpendauer', u: 's', step: 1}, {k: 'from_hour', l: 'Erlaubt ab', u: 'Uhr', step: 1},
+    {k: 'to_hour', l: 'Erlaubt bis', u: 'Uhr', step: 1}]},
+  alarms: {title: 'Alarmgrenzen', fields: [
+    {k: 'enabled', l: 'Alarme aktiv', t: 'bool'}, {k: 'temp_min', l: 'Temperatur min', u: '°C', step: .5},
+    {k: 'temp_max', l: 'Temperatur max', u: '°C', step: .5}, {k: 'hum_min', l: 'Luftfeuchte min', u: '%', step: 1},
+    {k: 'hum_max', l: 'Luftfeuchte max', u: '%', step: 1}, {k: 'delay_min', l: 'Verzögerung bis Alarm', u: 'min', step: 1}],
+   hint: 'Ein Alarm löst erst aus, wenn die Grenze so lange verletzt bleibt. Ausfall von Sensor oder Gerät meldet sich nach 60 s.'},
+  grow: {title: 'Grow-Zyklus', fields: [
+    {k: 'stage', l: 'Phase', t: 'select', o: [['', '– keine –'], ['seedling', 'Keimling'], ['veg', 'Wachstum'], ['flower', 'Blüte'], ['late', 'Spätblüte'], ['dry', 'Trocknung']]},
+    {k: 'start_date', l: 'Start der Phase', t: 'date'}]},
+};
+
+let S = null, CFG = null, range = '1h', hist = [], shown = new Set(['temp', 'hum', 'vpd']), evFilter = '', hover = -1;
+let token = ''; try { token = localStorage.token || ''; } catch (e) {}
+
+function toast(msg, bad) {
+  const t = $('#toast'); t.textContent = msg; t.className = 'show' + (bad ? ' bad' : '');
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.className = '', 2600);
+}
+async function api(path, body, retried) {
+  const opt = body === undefined ? {} : {method: 'POST', body: JSON.stringify(body)};
+  opt.headers = {'X-Token': token};
+  const r = await fetch(path, opt);
+  if (r.status === 401 && !retried) {
+    const t = prompt('Zugangs-Token eingeben:');
+    if (t === null) throw new Error('Token erforderlich');
+    token = t; try { localStorage.token = t; } catch (e) {}
+    return api(path, body, true);
+  }
+  const data = r.headers.get('content-type')?.includes('json') ? await r.json() : await r.text();
+  if (!r.ok) { const e = new Error(data.error || 'Fehler'); e.data = data; throw e; }
+  return data;
+}
+
+// ---- Navigation ----
+function showTab(id) {
+  if (!TABS.some(t => t[0] === id)) id = 'overview';
+  document.querySelectorAll('.tab').forEach(e => e.classList.toggle('on', e.id === 'tab-' + id));
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.t === id));
+  location.hash = id;
+  if (id === 'overview') loadHistory();
+  if (id === 'system' || id === 'alarms') loadEvents();
+}
+$('#nav').innerHTML = TABS.map(([id, l]) => `<button data-t="${id}">${l}</button>`).join('');
+$('#nav').onclick = e => e.target.dataset.t && showTab(e.target.dataset.t);
+$('#alarmPill').onclick = () => S?.alarms.length && showTab('alarms');
+
+// ---- Übersicht ----
+function tileClass(v, target, hyst, lo, hi) {
+  if (v == null) return 'none';
+  if (v < lo || v > hi) return 'bad';
+  return Math.abs(v - target) > hyst ? 'warn' : '';
+}
+function renderOverview() {
+  const r = S.readings, st = S.stats, t = S.targets, c = CFG?.values || {}, cl = c.climate || {}, al = c.alarms || {};
+  const tiles = [
+    ['Temperatur', r.temp, '°C', t.temp, tileClass(r.temp, t.temp, cl.temp_hyst ?? 1, al.temp_min ?? -99, al.temp_max ?? 99), st.temp, 1],
+    ['Luftfeuchte', r.hum, '%', t.hum, tileClass(r.hum, t.hum, cl.hum_hyst ?? 5, al.hum_min ?? -99, al.hum_max ?? 999), st.hum, 1],
+    ['VPD', S.vpd, 'kPa', t.vpd, tileClass(S.vpd, t.vpd, (cl.vpd_hyst ?? .1) * 1.5, 0, 9), st.vpd, 2]];
+  $('#tiles').innerHTML = tiles.map(([n, v, u, tg, cls, s, d]) => `<div class="card tile ${cls}"><h3>${n}</h3>
+    <div class="big">${v == null ? '–' : v.toFixed(d)}<small>${u}</small></div>
+    <div class="sub">Soll ${tg} ${u}${n === 'VPD' && t.control !== 'vpd' ? ' (Info)' : ''} · ${S.is_day ? '☀ Tag' : '🌙 Nacht'}</div>
+    ${s ? `<div class="sub">24 h: ${s.min} … ${s.max} (Ø ${s.avg})</div>` : ''}</div>`).join('');
+  $('#zmark').style.left = Math.min(100, (S.vpd ?? 0) / 2 * 100) + '%';
+  $('#banner').innerHTML = S.alarms.length ? `<div class="banner">${S.alarms.map(a => `<div>⚠ ${esc(a.msg)}</div>`).join('')}</div>` : '';
+}
+function renderHeader() {
+  const n = S.alarms.length, p = $('#alarmPill');
+  p.textContent = n ? `⚠ ${n} Alarm${n > 1 ? 'e' : ''}` : '✓ Alles OK'; p.className = 'pill ' + (n ? 'bad' : 'ok');
+  const g = S.grow; $('#stagePill').textContent = g.stage ? `${STAGE[g.stage]}${g.day ? ' · Tag ' + g.day : ''}` : 'Keine Phase';
+  $('#clock').textContent = S.time.slice(11, 16);
+}
+
+// ---- Diagramm ----
+$('#rangeChips').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-r="${r}">${l}</button>`).join('');
+$('#seriesChips').innerHTML = SERIES.map(([k, l, u, c]) => `<button class="chip s on" data-k="${k}" style="--c:${c}">${l}</button>`).join('');
+$('#rangeChips').onclick = e => { if (e.target.dataset.r) { range = e.target.dataset.r; loadHistory(); } };
+$('#seriesChips').onclick = e => { const k = e.target.dataset.k; if (!k) return; shown.has(k) ? shown.delete(k) : shown.add(k); drawAll(); };
+async function loadHistory() {
+  document.querySelectorAll('#rangeChips .chip').forEach(b => b.classList.toggle('on', b.dataset.r === range));
+  try { hist = await api('/api/history?range=' + range); } catch (e) { return; }
+  drawAll();
+}
+function css(v) { const d = document.createElement('i'); d.style.color = v; document.body.append(d); const c = getComputedStyle(d).color; d.remove(); return c; }
+function sizeCanvas(cv, h) {
+  const dpr = devicePixelRatio || 1, w = cv.clientWidth; cv.width = w * dpr; cv.height = h * dpr; cv.style.height = h + 'px';
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [g, w, h];
+}
+const PAD = {l: 8, r: 8, t: 10, b: 22};
+function xAt(i, n, w) { return PAD.l + (n <= 1 ? 0 : i / (n - 1)) * (w - PAD.l - PAD.r); }
+function drawAll() {
+  document.querySelectorAll('#seriesChips .chip').forEach(b => b.classList.toggle('on', shown.has(b.dataset.k)));
+  drawChart(); drawTimeline();
+}
+function drawChart() {
+  const cv = $('#chart'); if (!cv.clientWidth) return;
+  const [g, w, h] = sizeCanvas(cv, 230), n = hist.length, line = css('var(--line)'), mute = css('var(--mute)');
+  g.clearRect(0, 0, w, h); g.strokeStyle = line; g.fillStyle = mute; g.font = '11px system-ui'; g.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const y = PAD.t + i * (h - PAD.t - PAD.b) / 4; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(w - PAD.r, y); g.stroke(); }
+  if (n < 2) { g.fillText('Noch zu wenig Daten …', PAD.l + 6, h / 2); return; }
+  const fmt = i => range === '7d' || range === '24h' && false ? hist[i].t.slice(5, 10) : hist[i].t.slice(11, 16);
+  [0, .25, .5, .75, 1].forEach(f => { const i = Math.round(f * (n - 1)); g.textAlign = f === 0 ? 'left' : f === 1 ? 'right' : 'center';
+    g.fillText(range === '7d' ? hist[i].t.slice(5, 10) + ' ' + hist[i].t.slice(11, 16) : hist[i].t.slice(11, 16), xAt(i, n, w), h - 6); });
+  for (const [k, , , col] of SERIES) {
+    if (!shown.has(k)) continue;
+    const v = hist.map(r => r[k]); const vals = v.filter(x => x != null); if (!vals.length) continue;
+    let lo = Math.min(...vals), hi = Math.max(...vals); const m = (hi - lo) * .15 || 1; lo -= m; hi += m;
+    g.strokeStyle = css(col); g.lineWidth = 2; g.beginPath(); let started = false;
+    v.forEach((y, i) => { if (y == null) { started = false; return; }
+      const X = xAt(i, n, w), Y = PAD.t + (1 - (y - lo) / (hi - lo)) * (h - PAD.t - PAD.b); started ? g.lineTo(X, Y) : g.moveTo(X, Y); started = true; });
+    g.stroke();
+  }
+  if (hover >= 0 && hover < n) { const X = xAt(hover, n, w); g.strokeStyle = mute; g.lineWidth = 1; g.beginPath(); g.moveTo(X, PAD.t); g.lineTo(X, h - PAD.b); g.stroke(); }
+}
+function drawTimeline() {
+  const cv = $('#tl'), names = S ? Object.keys(S.outputs) : []; if (!cv.clientWidth || !names.length) return;
+  const rowH = 16, [g, w] = sizeCanvas(cv, names.length * rowH + 4), n = hist.length;
+  g.clearRect(0, 0, w, 300); g.font = '11px system-ui'; g.textBaseline = 'middle';
+  names.forEach((nm, j) => {
+    const y = j * rowH + 2; g.fillStyle = css('var(--panel2)'); g.fillRect(PAD.l, y + 2, w - PAD.l - PAD.r, rowH - 5);
+    g.fillStyle = css('var(--accent)');
+    for (let i = 0; i < n; i++) if (hist[i][nm]) { const x0 = xAt(i, n, w), x1 = xAt(Math.min(i + 1, n - 1), n, w) || x0; g.fillRect(x0, y + 2, Math.max(1.5, x1 - x0), rowH - 5); }
+    g.fillStyle = css('var(--text)'); g.fillText(LABEL[nm] || nm, PAD.l + 4, y + rowH / 2);
+  });
+}
+$('#chart').onmousemove = e => {
+  if (hist.length < 2) return;
+  const cv = $('#chart'), rect = cv.getBoundingClientRect(), w = rect.width, x = e.clientX - rect.left;
+  hover = Math.max(0, Math.min(hist.length - 1, Math.round((x - PAD.l) / (w - PAD.l - PAD.r) * (hist.length - 1))));
+  const r = hist[hover], tip = $('#tip');
+  tip.innerHTML = `<b>${r.t.slice(5, 10)} ${r.t.slice(11, 16)}</b><br>` + SERIES.filter(s => shown.has(s[0]) && r[s[0]] != null)
+    .map(([k, l, u]) => `${l}: ${r[k]} ${u}`).join('<br>');
+  tip.style.display = 'block'; tip.style.left = Math.min(x + 12, w - 150) + 'px'; tip.style.top = '10px'; drawChart();
+};
+$('#chart').onmouseleave = () => { hover = -1; $('#tip').style.display = 'none'; drawChart(); };
+addEventListener('resize', () => S && drawAll());
+
+// ---- Geräte ----
+function renderDevices() {
+  $('#devices').innerHTML = Object.entries(S.outputs).map(([n, o]) => {
+    const info = Object.entries(o.info).filter(([k]) => k !== 'type').map(([k, v]) => `${k}: ${v}`).join(' · ');
+    return `<div class="card dev"><div class="name"><span class="dot ${o.ok === false ? 'err' : o.state ? 'on' : ''}"></span>${esc(LABEL[n] || n)}
+      <span class="sp"></span><small class="sub">${o.state ? 'EIN' : 'AUS'}</small></div>
+      <div class="info">${esc(o.info.type)} · Rolle ${esc(o.role)}${o.ok === false ? ' · <span style="color:var(--bad)">nicht erreichbar</span>' : ''}<br>${esc(info)}</div>
+      <div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${{auto: 'Auto', on: 'Ein', off: 'Aus'}[m]}</button>`).join('')}</div></div>`;
+  }).join('');
+  const i = S.irrigation, f = t => t ? t.replace('T', ' ').slice(5, 16) : '–';
+  $('#irrCard').innerHTML = `<h3>Bewässerung</h3><div class="row"><div class="sp">Zuletzt: <b>${f(i.last)}</b> · Nächste: <b>${f(i.next)}</b>${i.running ? ' · <b style="color:var(--hum)">läuft …</b>' : ''}</div>
+    <button class="pri" id="waterBtn">💧 Jetzt gießen</button></div>`;
+  $('#waterBtn').onclick = async () => { if (!confirm('Pumpe jetzt für ' + CFG.values.irrigation.duration_s + ' s starten?')) return;
+    try { S = await api('/api/irrigation/run', {}); renderAll(); toast('Bewässerung gestartet'); } catch (e) { toast(e.message, 1); } };
+}
+$('#devices').onclick = async e => {
+  const b = e.target.closest('button[data-m]'); if (!b) return;
+  try { S = await api('/api/output/' + encodeURIComponent(b.dataset.n), {mode: b.dataset.m}); renderAll(); } catch (er) { toast(er.message, 1); }
+};
+
+// ---- Einstellungsformulare ----
+function buildForm(sec) {
+  const F = FORMS[sec], vals = CFG.values[sec], spec = CFG.spec[sec], box = $('#f-' + sec);
+  const fields = F.fields.map(f => {
+    const sp = spec[f.k], v = vals[f.k], t = f.t || 'num';
+    let inp;
+    if (t === 'bool') inp = `<input type="checkbox" name="${f.k}" ${v ? 'checked' : ''}>`;
+    else if (t === 'select') inp = `<select name="${f.k}">${f.o.map(([val, l]) => `<option value="${val}" ${v === val ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    else if (t === 'time' || t === 'date') inp = `<input type="${t}" name="${f.k}" value="${v ?? ''}">`;
+    else inp = `<input type="number" name="${f.k}" value="${v}" min="${sp[1]}" max="${sp[2]}" step="${f.step || 1}">`;
+    return `<div class="f" data-k="${f.k}" ${f.show ? `data-sk="${f.show[0]}" data-sv="${f.show[1]}"` : ''}><label>${f.l}</label><div>${inp}${f.u ? `<span class="u">${f.u}</span>` : ''}</div><div class="err"></div></div>`;
+  }).join('');
+  const photo = F.photo ? `<div class="f"><label>Lichtzyklus (Schnellwahl)</label><div class="chips">${[[18, 6], [20, 4], [16, 8], [12, 12]].map(([a, b]) => `<button type="button" class="chip" data-ph="${a}">${a}/${b}</button>`).join('')}</div></div>` : '';
+  box.innerHTML = `<h3>${F.title}</h3>${F.hint ? `<p class="hint">${F.hint}</p>` : ''}<form data-sec="${sec}" novalidate>${fields}${photo}
+    <div class="row" style="margin-top:12px"><button class="pri" type="submit">Speichern</button><button class="sec" type="button" data-reset>Zurücksetzen</button></div></form>`;
+  const form = $('form', box);
+  const vis = () => form.querySelectorAll('[data-sk]').forEach(r => r.style.display = form.elements[r.dataset.sk].value === r.dataset.sv ? '' : 'none');
+  vis(); form.onchange = vis;
+  form.querySelector('[data-reset]').onclick = () => buildForm(sec);
+  form.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => {
+    const on = form.elements.on.value || '06:00', [h, m] = on.split(':').map(Number), end = (h * 60 + m + +b.dataset.ph * 60) % 1440;
+    form.elements.off.value = String(Math.floor(end / 60)).padStart(2, '0') + ':' + String(end % 60).padStart(2, '0');
+  });
+  form.onsubmit = async ev => {
+    ev.preventDefault(); form.querySelectorAll('.err').forEach(e => e.textContent = '');
+    const out = {};
+    F.fields.forEach(f => { const el = form.elements[f.k], t = f.t || 'num'; out[f.k] = t === 'bool' ? el.checked : t === 'num' ? parseFloat(el.value) : el.value; });
+    try { const r = await api('/api/settings', {[sec]: out}); CFG.values = r.values; toast('Gespeichert ✓'); S = await api('/api/status'); renderAll(); }
+    catch (e) {
+      const errs = e.data?.errors || {}; let any = false;
+      for (const [p, m] of Object.entries(errs)) { const row = form.querySelector(`[data-k="${p.split('.')[1]}"] .err`); if (row) { row.textContent = m; any = true; } }
+      toast(any ? 'Bitte Eingaben prüfen' : (e.message || 'Fehler'), 1);
+    }
+  };
+}
+
+// ---- Zyklus / Presets ----
+function renderPresets() {
+  const cur = CFG.values.grow.stage;
+  $('#presets').innerHTML = Object.entries(CFG.presets).map(([k, p]) => {
+    const c = p.climate, li = p.light;
+    return `<div class="card preset ${cur === k ? 'cur' : ''}"><h3>${p.label}</h3><ul>
+      ${c.temp_day != null ? `<li>Temperatur ${c.temp_day} / ${c.temp_night} °C</li>` : ''}
+      ${c.hum_day != null ? `<li>Luftfeuchte ${c.hum_day} / ${c.hum_night} %</li>` : ''}
+      ${c.vpd_day != null ? `<li>VPD ${c.vpd_day} / ${c.vpd_night} kPa</li>` : ''}
+      <li>${li.enabled === false ? 'Licht aus' : `Licht ${li.on}–${li.off}`}</li></ul>
+      <button class="sec" data-p="${k}">Anwenden</button></div>`;
+  }).join('');
+}
+$('#presets').onclick = async e => {
+  const k = e.target.dataset.p; if (!k) return; const p = CFG.presets[k];
+  if (!confirm(`Voreinstellung „${p.label}“ anwenden? Aktuelle Werte für Klima und Licht werden überschrieben.`)) return;
+  const today = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  try {
+    const r = await api('/api/settings', {climate: p.climate, light: {enabled: true, ...p.light}, grow: {stage: k, start_date: today}});
+    CFG.values = r.values; toast(p.label + ' angewendet ✓'); S = await api('/api/status'); renderAll(true);
+  } catch (er) { toast(er.data ? 'Ungültige Voreinstellung' : er.message, 1); }
+};
+
+// ---- Alarme, System ----
+const KIND = {alarm: '⚠ Alarm', output: '⏻ Gerät', irrigation: '💧 Gießen', settings: '⚙ Einstellung', mode: '🎛 Modus', system: '▣ System'};
+async function loadEvents() {
+  let ev; try { ev = await api('/api/events'); } catch (e) { return; }
+  const kinds = [...new Set(ev.map(e => e.kind))];
+  $('#evChips').innerHTML = ['', ...kinds].map(k => `<button class="chip ${evFilter === k ? 'on' : ''}" data-k="${k}">${k ? KIND[k] || k : 'Alle'}</button>`).join('');
+  $('#events').innerHTML = '<tr><th>Zeit</th><th>Art</th><th>Ereignis</th></tr>' + ev.filter(e => !evFilter || e.kind === evFilter).slice(0, 100)
+    .map(e => `<tr><td>${e.t.slice(5, 10)} ${e.t.slice(11, 19)}</td><td class="k-${e.kind}">${KIND[e.kind] || e.kind}</td><td>${esc(e.msg)}</td></tr>`).join('');
+  $('#alarmHist')?.remove();
+}
+$('#evChips').onclick = e => { if (e.target.dataset.k !== undefined) { evFilter = e.target.dataset.k; loadEvents(); } };
+function renderAlarms() {
+  $('#alarmList').innerHTML = `<h3>Aktive Alarme</h3>` + (S.alarms.length ? S.alarms.map(a => `<div class="row" style="padding:6px 0"><span style="color:var(--bad)">⚠</span><span class="sp">${esc(a.msg)}</span><small class="sub">seit ${a.since.slice(5, 10)} ${a.since.slice(11, 16)}</small></div>`).join('')
+    : '<div class="sub" style="color:var(--ok)">✓ Keine aktiven Alarme</div>');
+}
+function renderSystem() {
+  const u = S.uptime_s, up = `${Math.floor(u / 86400)} d ${Math.floor(u % 86400 / 3600)} h ${Math.floor(u % 3600 / 60)} min`;
+  $('#sys').innerHTML = `<div class="sub">Laufzeit: <b>${up}</b></div><div class="sub">Regelmodus: <b>${S.targets.control === 'vpd' ? 'VPD' : 'Temperatur + Feuchte'}</b></div>
+    <div class="sub">Sensordaten: <b style="color:var(--${S.stale ? 'bad' : 'ok'})">${S.stale ? 'veraltet' : 'aktuell'}</b></div>`;
+  $('#hw').innerHTML = '<tr><th>Gerät</th><th>Typ</th><th>Rolle</th><th>Status</th><th>Details</th></tr>' + Object.entries(S.outputs).map(([n, o]) =>
+    `<tr><td>${esc(LABEL[n] || n)}</td><td>${esc(o.info.type)}</td><td>${esc(o.role)}</td><td style="color:var(--${o.ok === false ? 'bad' : 'ok'})">${o.ok === false ? 'nicht erreichbar' : 'OK'}</td>
+    <td>${esc(Object.entries(o.info).filter(([k]) => k !== 'type').map(([k, v]) => k + ': ' + v).join(' · '))}</td></tr>`).join('');
+  $('#authHint').textContent = CFG.auth ? 'Änderungen sind per Token geschützt.' : 'Kein Token gesetzt – jeder im Netzwerk kann Einstellungen ändern. Setze "web.token" in config.json.';
+}
+$('#exports').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-x="${r}">⬇ ${l}</button>`).join('');
+$('#exports').onclick = async e => {
+  const r = e.target.dataset.x; if (!r) return;
+  try { const txt = await api('/api/export.csv?range=' + r), a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([txt], {type: 'text/csv'})); a.download = `grow-${r}.csv`; a.click(); } catch (er) { toast(er.message, 1); }
+};
+$('#tokBtn').onclick = () => { const t = prompt('Neues Token (leer = löschen):', token); if (t !== null) { token = t; try { localStorage.token = t; } catch (e) {} toast('Token gespeichert'); } };
+
+// ---- Hauptschleife ----
+let built = false;
+function renderAll(rebuild) {
+  renderHeader(); renderOverview(); renderDevices(); renderAlarms(); renderSystem(); renderPresets();
+  if (!built || rebuild) { Object.keys(FORMS).forEach(buildForm); built = true; }
+}
+async function poll() {
+  try {
+    if (!CFG) CFG = await api('/api/settings');
+    S = await api('/api/status'); renderAll();
+    if (!$('#tab-overview').classList.contains('on')) return;
+    if (range === '1h') loadHistory(); else drawTimeline();
+  } catch (e) { $('#alarmPill').textContent = '✖ keine Verbindung'; $('#alarmPill').className = 'pill bad'; }
+}
+setInterval(poll, 5000); setInterval(() => $('#tab-overview').classList.contains('on') && range !== '1h' && loadHistory(), 60000);
+poll().then(() => showTab(location.hash.slice(1)));
+</script>

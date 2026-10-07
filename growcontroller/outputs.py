@@ -38,7 +38,8 @@ def _gpio():
 
 
 class Output:
-    def __init__(self, name, backend, role=None, min_switch_s=0, max_on_s=None, safe_state=False, follow=None):
+    def __init__(self, name, backend, role=None, min_switch_s=0, max_on_s=None, safe_state=False, info=None):
+        self.info = info or {}
         self.name, self.backend, self.role = name, backend, role or name
         self.min_switch_s, self.max_on_s, self.safe_state = min_switch_s, max_on_s, safe_state
         self.mode = "auto"      # auto | on | off
@@ -76,6 +77,8 @@ def create_all(cfg):
         c = dict(c)
         typ = c.pop("type", "gpio")
         common = {k: c.pop(k) for k in ("role", "min_switch_s", "max_on_s", "safe_state") if k in c}
+        secret = ("key", "local_key", "password")
+        common["info"] = {"type": typ, **{k: v for k, v in c.items() if k not in secret}, **{k: common[k] for k in ("min_switch_s", "max_on_s") if k in common}}
         try:
             be = _make_backend(typ, c, cfg, gpio, hub)
         except Exception as e:

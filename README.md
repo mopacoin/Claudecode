@@ -6,8 +6,26 @@ Eigenständiger Growcontroller in Python 3 – ohne Node-RED, nur Standardbiblio
 - Temperatur/Luftfeuchte: Heizung, Lüfter, Befeuchter mit Hysterese, Mindestschaltzeiten, Lüfter-Grundzyklus
 - Bewässerung per Timer (Fenster, Laufzeit, Pumpen-Maximallaufzeit)
 - Failsafe: veraltete Sensordaten → Heizung/Befeuchter aus; beim Beenden alle Relais aus
-- Weboberfläche (`http://<pi>:8080`) mit Modus auto/on/off je Ausgang, optional Token
+- Dashboard (`http://<pi>:8080`), siehe unten
 - CSV-Log pro Tag in `data/`, Bewässerungszeitpunkt überlebt Neustarts
+
+## Dashboard
+Läuft im Controller selbst (keine externen Bibliotheken, funktioniert offline), responsiv für Handy und Desktop.
+
+- **Übersicht:** Temperatur, Luftfeuchte und VPD mit Soll, Ampelfarbe und 24-h-Min/Max/Ø; VPD-Bereichsanzeige;
+  Verlaufsdiagramm (1 Std / 6 Std / 24 Std / 7 Tage, Hover-Tooltip) und Schaltzeiten-Zeitleiste aller Geräte
+- **Geräte:** je Gerät Auto/Ein/Aus (bleibt nach Neustart erhalten), Erreichbarkeit, „Jetzt gießen“
+- **Klima:** Regelmodus Temperatur+Feuchte **oder VPD** (Ziel-VPD wird bei aktueller Temperatur in eine Feuchte-Vorgabe
+  umgerechnet, mit Blatt-Temperaturversatz), Tag/Nacht-Sollwerte, Hysteresen, Lüfter-Grundlauf
+- **Licht:** Zeitplan inkl. Schnellwahl 18/6, 20/4, 16/8, 12/12 · **Bewässerung:** Intervall, Dauer, Zeitfenster
+- **Alarme:** Grenzwerte mit Verzögerung; Sensor-/Geräteausfall; aktive Alarme im Kopf der Seite
+- **Zyklus:** Wachstumsphase mit Tageszähler und Voreinstellungen (Keimling, Wachstum, Blüte, Spätblüte, Trocknung – nur Richtwerte)
+- **System:** Ereignisprotokoll (Alarme, Schaltvorgänge, Einstellungen), Hardware-Übersicht, CSV-Export, Token
+
+Einstellungen werden serverseitig geprüft (Grenzen stehen in `settings.py`), sofort übernommen und in `data/settings.json`
+gespeichert; sie überschreiben die Werte aus `config.json`. Geräte/Pins/Zugangsdaten (`outputs`, `sensors`, `mqtt`)
+bleiben bewusst in `config.json`. Verlauf: 1 Wert/min in `data/log-*.csv`, die letzten 7 Tage werden beim Start geladen.
+Ohne `web.token` kann jeder im Netz Einstellungen ändern – bitte ein Token setzen (Header `X-Token`, die Oberfläche fragt danach).
 
 ## Ausgangs-Typen (`config.json` → `outputs`)
 Jeder Ausgang hat `type` und optional `role` (Standard = Name). Rollen: `light`, `fan`, `heater`, `humidifier`,
@@ -37,6 +55,6 @@ Auf dem Pi: `pip3 install -r requirements.txt` (nach Bedarf), in `config.json` d
 
 Autostart: `deploy/growcontroller.service` nach `/etc/systemd/system/` kopieren, `systemctl enable --now growcontroller`.
 
-API: `GET /api/status`, `GET /api/history`, `POST /api/output/<name>` mit `{"mode":"auto|on|off"}` (Header `X-Token`, falls gesetzt).
+API: `GET /api/status|history?range=1h|6h|24h|7d|settings|events|export.csv`, `POST /api/settings` (`{"climate":{"temp_day":25}}`), `POST /api/output/<name>` (`{"mode":"auto|on|off"}`), `POST /api/irrigation/run` (Schreibzugriffe mit Header `X-Token`, falls gesetzt).
 
 **Sicherheit:** Netzspannung nur mit geeigneten Relais/Absicherung (FI, Sicherung, Übertemperaturschutz in Hardware) – Software ersetzt keinen Hardware-Schutz.

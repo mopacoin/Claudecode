@@ -49,3 +49,45 @@ class T(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDevices(unittest.TestCase):
+    def test_meross_local_signature_and_payload(self):
+        import hashlib, json, threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        seen = []
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                seen.append(body)
+                out = json.dumps({"header": {"method": "SETACK"}, "payload": {}}).encode()
+                self.send_response(200); self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        b = backends.MerossLocalBackend(f"127.0.0.1:{srv.server_port}", "KEY")
+        b.set(True)
+        for _ in range(60):
+            if seen: break
+            time.sleep(0.05)
+        b.close(); srv.shutdown()
+        h = seen[0]["header"]
+        self.assertEqual(h["sign"], hashlib.md5(f"{h['messageId']}KEY{h['timestamp']}".encode()).hexdigest())
+        self.assertEqual(seen[0]["payload"], {"togglex": {"channel": 0, "onoff": 1}})
+
+    def test_tuya_value_dp_and_version_probe(self):
+        calls = []
+
+        class Dev:
+            def __init__(s, v): s.v = v
+            def set_value(s, dp, val):
+                calls.append((s.v, dp, val))
+                return {"Error": "x"} if s.v == 3.3 else {"dps": {}}
+
+        t = backends.TuyaBackend.__new__(backends.TuyaBackend)
+        t.cfg, t.versions, t.dp, t.value_on, t.value_off, t.dev = ("id", "Auto", "k"), [3.3, 3.4], 2, 30, 65, None
+        t._device = lambda v: Dev(v)
+        t._send(True); t._send(False)
+        self.assertEqual(calls, [(3.3, 2, 30), (3.4, 2, 30), (3.4, 2, 65)])

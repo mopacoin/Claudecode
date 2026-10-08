@@ -1,164 +1,258 @@
 <!doctype html>
 <html lang="de">
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0e1411">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#070b09">
 <title>Growdashboard</title>
 <style>
-:root{--bg:#0e1411;--panel:#16201b;--panel2:#1d2a23;--line:#2a3a31;--text:#e8efe9;--mute:#8fa597;
---ok:#4caf6a;--warn:#f0a93b;--bad:#ef5350;--accent:#59c98a;--temp:#ff7a59;--hum:#4aa8ff;--vpd:#b684ff;--r:12px}
-@media(prefers-color-scheme:light){:root{--bg:#f2f5f2;--panel:#fff;--panel2:#eaf0eb;--line:#d5e0d8;--text:#17211b;--mute:#5d7064;
---accent:#1f9d57;--temp:#e8522f;--hum:#1f7fd6;--vpd:#8b4fe0}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
-header{display:flex;align-items:center;gap:12px;padding:12px 16px;max-width:1100px;margin:auto}
-header h1{font-size:18px;margin:0;flex:1;white-space:nowrap}
-.pill{white-space:nowrap;padding:4px 10px;border-radius:99px;background:var(--panel2);color:var(--mute);font-size:13px;border:0;color:inherit;cursor:default}
-.pill.bad{background:var(--bad);color:#fff;cursor:pointer}.pill.ok{color:var(--ok)}
-nav{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
-nav div{display:flex;gap:4px;max-width:1100px;margin:auto;padding:0 12px;overflow-x:auto}
-nav button{background:none;border:0;color:var(--mute);padding:12px 14px;font:inherit;border-bottom:3px solid transparent;white-space:nowrap;cursor:pointer}
-nav button.on{color:var(--text);border-color:var(--accent)}
-main{max-width:1100px;margin:auto;padding:16px}
-.tab{display:none}.tab.on{display:block}
-.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
-.card h3{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
-.big{font-size:40px;font-weight:700;line-height:1}.big small{font-size:16px;font-weight:500;color:var(--mute);margin-left:4px}
-.tile{border-left:5px solid var(--ok)}.tile.warn{border-color:var(--warn)}.tile.bad{border-color:var(--bad)}.tile.none{border-color:var(--line)}
-.sub{color:var(--mute);font-size:13px;margin-top:6px}
-.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.sp{flex:1}
-.banner{background:var(--bad);color:#fff;border-radius:var(--r);padding:10px 14px;margin-bottom:12px}
-.banner div+div{margin-top:2px}
-.zone{position:relative;height:10px;border-radius:5px;margin:10px 0 4px;background:linear-gradient(90deg,#4aa8ff 0 20%,#59c98a 20% 40%,#8bd36b 40% 60%,#f0a93b 60% 80%,#ef5350 80%)}
-.zone i{position:absolute;top:-4px;width:4px;height:18px;border-radius:2px;background:var(--text);transform:translateX(-2px)}
-.zlab{display:flex;justify-content:space-between;color:var(--mute);font-size:11px}
-.chips{display:flex;gap:6px;flex-wrap:wrap}
-.chip{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:5px 11px;border-radius:99px;font:inherit;font-size:13px;cursor:pointer}
-.chip.on{background:var(--accent);color:#04140a;border-color:var(--accent)}
-.chip.s{border-left:4px solid var(--c)}
-.chart{position:relative}
-canvas{width:100%;display:block}
-#tip{position:absolute;pointer-events:none;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;display:none;white-space:nowrap;z-index:3}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.seg button{background:var(--panel2);border:0;color:var(--text);padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
-.seg button.on{background:var(--accent);color:#04140a}
+:root{--bg:#070b09;--card:rgba(255,255,255,.045);--card2:rgba(255,255,255,.07);--line:rgba(255,255,255,.09);--text:#eaf3ee;--mute:#8aa196;
+--acc:#3ddc97;--acc2:#a3e635;--temp:#ff8a5c;--hum:#4db8ff;--vpd:#b794ff;--ok:#3ddc97;--warn:#ffb547;--bad:#ff5d6c;
+--glow:0 0 0 1px var(--line),0 10px 30px -12px rgba(0,0,0,.6);--r:18px;--side:236px;--onacc:#03130b}
+@media(prefers-color-scheme:light){:root{--bg:#eef3f0;--card:rgba(255,255,255,.85);--card2:rgba(0,0,0,.04);--line:rgba(10,40,25,.09);--text:#13201a;--mute:#5f7569;
+--acc:#13a463;--acc2:#6aa80f;--temp:#e5532b;--hum:#1a7fd4;--vpd:#7c4ddb;--ok:#13a463;--warn:#d98a0b;--bad:#e03a4b;
+--glow:0 0 0 1px var(--line),0 8px 24px -12px rgba(20,60,40,.25);--onacc:#fff}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{background:var(--bg)}
+body{margin:0;color:var(--text);font:15px/1.45 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;
+background:radial-gradient(900px 500px at 8% -5%,color-mix(in srgb,var(--acc) 16%,transparent),transparent 60%),
+radial-gradient(800px 500px at 100% 100%,color-mix(in srgb,var(--hum) 12%,transparent),transparent 60%),var(--bg);background-attachment:fixed}
+svg{display:block}.ico{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.app{display:flex;min-height:100vh}
+aside{width:var(--side);flex:none;position:sticky;top:0;height:100vh;padding:20px 14px;display:flex;flex-direction:column;gap:6px;border-right:1px solid var(--line);backdrop-filter:blur(14px)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;padding:4px 10px 18px}
+.logo{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:linear-gradient(135deg,var(--acc),var(--acc2));color:var(--onacc);box-shadow:0 6px 18px -6px var(--acc)}
+.nav button{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;color:var(--mute);padding:11px 12px;border-radius:12px;font:inherit;font-weight:500;cursor:pointer;transition:.15s}
+.nav button:hover{background:var(--card2);color:var(--text)}
+.nav button.on{background:linear-gradient(90deg,color-mix(in srgb,var(--acc) 22%,transparent),transparent);color:var(--text);box-shadow:inset 3px 0 0 var(--acc)}
+.nav button.on .ico{color:var(--acc)}
+.side-foot{margin-top:auto;padding:12px;border-radius:14px;background:var(--card);border:1px solid var(--line);font-size:13px;color:var(--mute)}
+.content{flex:1;min-width:0}
+.top{display:flex;align-items:center;gap:12px;padding:22px 28px 6px;flex-wrap:wrap}
+.top h1{margin:0;font-size:24px;letter-spacing:-.02em;font-weight:700}.top .sub2{color:var(--mute);font-size:14px;margin-top:2px}
+.sp{flex:1}
+.chip{display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:99px;background:var(--card);border:1px solid var(--line);color:var(--text);font:inherit;font-size:13px;white-space:nowrap}
+button.chip{cursor:pointer;transition:.15s}button.chip:hover{background:var(--card2)}
+.chip.on{background:linear-gradient(135deg,var(--acc),var(--acc2));color:var(--onacc);border-color:transparent;font-weight:600}
+.chip.alarm{background:color-mix(in srgb,var(--bad) 20%,transparent);border-color:var(--bad);color:var(--text)}
+.chip.good{color:var(--ok)}
+.chip .d{width:8px;height:8px;border-radius:50%;background:currentColor}.chip.alarm .d{animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.3;transform:scale(1.5)}}
+main{padding:14px 28px 40px;max-width:1200px}
+.tab{display:none;animation:fade .25s}.tab.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--glow);backdrop-filter:blur(10px)}
+.card h3{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:12px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.09em}
+.grid{display:grid;gap:14px}.g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}.g4{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.mt{margin-top:14px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.chips{display:flex;gap:6px;flex-wrap:wrap}
+.banner{display:flex;gap:12px;align-items:center;background:linear-gradient(90deg,color-mix(in srgb,var(--bad) 30%,transparent),color-mix(in srgb,var(--bad) 8%,transparent));border:1px solid var(--bad);border-radius:var(--r);padding:12px 16px;margin-bottom:14px}
+.hint{color:var(--mute);font-size:13px;margin:0 0 14px}.sub{color:var(--mute);font-size:13px}
+/* Ringanzeigen */
+.gcard{position:relative;overflow:hidden}
+.gcard::before{content:"";position:absolute;inset:-40% -20% auto auto;width:200px;height:200px;border-radius:50%;background:var(--gc);opacity:.13;filter:blur(40px)}
+.gcard h3 .ico{width:16px;height:16px;color:var(--gc)}
+.gwrap{display:flex;align-items:center;gap:14px}
+.ring{position:relative;width:132px;flex:none}.ring svg{width:132px;height:132px}
+.ring .val{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.ring .val b{font-size:30px;line-height:1;letter-spacing:-.02em}
+.gmeta{flex:1;min-width:0}.gmeta .t{font-size:13px;color:var(--mute)}.gmeta .t b{color:var(--text);font-weight:600}
+.state{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:99px;margin-bottom:8px;
+background:color-mix(in srgb,var(--sc) 18%,transparent);color:var(--sc)}.state i{width:6px;height:6px;border-radius:50%;background:var(--sc)}
+.spark{height:38px;width:100%;margin-top:8px}
+/* Lichtzyklus + VPD */
+.cyc{position:relative;height:14px;border-radius:7px;background:var(--card2);margin:16px 0 8px;overflow:visible}
+.cyc i{position:absolute;top:0;bottom:0;border-radius:7px;background:linear-gradient(90deg,#ffd45e,#ffb547);box-shadow:0 0 14px -2px #ffb54788}
+.cyc u{position:absolute;top:-5px;width:3px;height:24px;border-radius:2px;background:var(--text);transform:translateX(-1px);text-decoration:none;box-shadow:0 0 6px #000a}
+.scale{display:flex;justify-content:space-between;font-size:11px;color:var(--mute)}
+.zone{position:relative;height:12px;border-radius:6px;margin:18px 0 6px;background:linear-gradient(90deg,#4db8ff 0 20%,#3ddc97 20% 40%,#a3e635 40% 60%,#ffb547 60% 80%,#ff5d6c 80%);opacity:.9}
+.zone i{position:absolute;top:-6px;width:5px;height:24px;border-radius:3px;background:var(--text);transform:translateX(-2px);box-shadow:0 0 8px #000a;transition:left .6s}
+/* Diagramm */
+.chart{position:relative}canvas{width:100%;display:block}
+#tip{position:absolute;pointer-events:none;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:8px 11px;font-size:12px;display:none;white-space:nowrap;z-index:3;box-shadow:0 10px 30px #0008;line-height:1.7}
+.legend{display:flex;gap:6px;flex-wrap:wrap}
+.chip.s{padding-left:11px}.chip.s::before{content:"";width:9px;height:9px;border-radius:3px;background:var(--c);opacity:.35}.chip.s.on{background:var(--card2);color:var(--text);border-color:var(--c);font-weight:500}.chip.s.on::before{opacity:1}
+/* Geräte */
+.dev{position:relative;overflow:hidden;transition:.2s}
+.dev.on{border-color:color-mix(in srgb,var(--acc) 55%,transparent);box-shadow:var(--glow),0 0 30px -10px var(--acc)}
+.dev .hd{display:flex;align-items:center;gap:12px}
+.dev .ib{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;background:var(--card2);color:var(--mute);transition:.2s}
+.dev.on .ib{background:linear-gradient(135deg,var(--acc),var(--acc2));color:var(--onacc);box-shadow:0 6px 16px -6px var(--acc)}
+.dev.err .ib{background:color-mix(in srgb,var(--bad) 25%,transparent);color:var(--bad)}
+.dev .nm{font-weight:600;font-size:16px}.dev .st{font-size:12px;color:var(--mute)}.dev.on .st{color:var(--acc)}
+.dev .info{color:var(--mute);font-size:12px;margin:12px 0;overflow-wrap:anywhere;line-height:1.6}
+.seg{display:flex;padding:3px;border-radius:12px;background:var(--card2)}
+.seg button{flex:1;background:none;border:0;color:var(--mute);padding:7px 0;font:inherit;font-size:13px;font-weight:500;border-radius:9px;cursor:pointer;transition:.15s}
+.seg button.on{background:linear-gradient(135deg,var(--acc),var(--acc2));color:var(--onacc);font-weight:600}
 .seg button.on.off{background:var(--mute);color:var(--bg)}
-.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--line);margin-right:8px}
-.dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}.dot.err{background:var(--bad)}
-.dev .name{font-weight:600;display:flex;align-items:center}
-.dev .info{color:var(--mute);font-size:12px;margin:4px 0 10px;overflow-wrap:anywhere}
-form .f{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
-form .f:last-of-type{border:0}
-form label{font-size:14px}form .u{color:var(--mute);font-size:13px;margin-left:6px}
-form .err{grid-column:1/-1;color:var(--bad);font-size:12px}
-input,select{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font:inherit;width:130px}
-input[type=checkbox]{width:42px;height:24px;appearance:none;background:var(--line);border-radius:12px;position:relative;cursor:pointer;padding:0;border:0}
-input[type=checkbox]::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.15s}
-input[type=checkbox]:checked{background:var(--accent)}input[type=checkbox]:checked::after{left:21px}
-button.pri{background:var(--accent);color:#04140a;border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
-button.sec{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer}
-.hint{color:var(--mute);font-size:13px;margin:0 0 8px}
-table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-th{color:var(--mute);font-weight:600}
-.k-alarm{color:var(--bad)}.k-irrigation{color:var(--hum)}.k-settings,.k-mode{color:var(--warn)}
-.preset.cur{outline:2px solid var(--accent)}
-.preset ul{margin:6px 0 10px;padding-left:18px;color:var(--mute);font-size:13px}
-#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:10px 18px;border-radius:99px;opacity:0;transition:.2s;pointer-events:none;z-index:9}
-#toast.show{opacity:1}#toast.bad{background:var(--bad);color:#fff}
-@media(max-width:560px){header{flex-wrap:wrap;gap:8px}header h1{flex-basis:100%}.big{font-size:34px}input,select{width:110px}}
+/* Formulare */
+.fgrid{display:grid;gap:4px 22px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.fld{padding:8px 0}.fld>label{display:block;font-size:13px;color:var(--mute);margin-bottom:6px}
+.ig{display:flex;align-items:center;background:var(--card2);border:1px solid var(--line);border-radius:12px;transition:.15s}
+.ig:focus-within{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 22%,transparent)}
+.ig input,.ig select{flex:1;min-width:0;background:none;border:0;color:var(--text);padding:11px 12px;font:inherit;outline:0;color-scheme:dark light}
+.ig select option{background:var(--bg);color:var(--text)}
+.ig span{padding-right:13px;color:var(--mute);font-size:13px}
+.fld.bad .ig{border-color:var(--bad)}.fld .err{color:var(--bad);font-size:12px;margin-top:4px}
+.tog{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-radius:12px;background:var(--card2);margin-top:20px}
+.tog label{margin:0;color:var(--text);font-size:14px}
+input[type=checkbox]{appearance:none;width:46px;height:26px;border-radius:13px;background:var(--line);position:relative;cursor:pointer;margin:0;flex:none;transition:.2s}
+input[type=checkbox]::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 2px 4px #0005}
+input[type=checkbox]:checked{background:linear-gradient(135deg,var(--acc),var(--acc2))}input[type=checkbox]:checked::after{left:23px}
+.actions{display:flex;gap:10px;margin-top:18px}
+button.pri{background:linear-gradient(135deg,var(--acc),var(--acc2));color:var(--onacc);border:0;border-radius:12px;padding:11px 22px;font:inherit;font-weight:700;cursor:pointer;box-shadow:0 8px 20px -8px var(--acc);transition:.15s}
+button.pri:hover{transform:translateY(-1px)}
+button.sec{background:var(--card2);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:10px 18px;font:inherit;cursor:pointer}
+/* Presets */
+.preset{position:relative;overflow:hidden;padding-top:22px}
+.preset::before{content:"";position:absolute;left:0;right:0;top:0;height:5px;background:var(--pc)}
+.preset.cur{box-shadow:var(--glow),0 0 0 2px var(--acc)}
+.preset .badge{position:absolute;top:14px;right:14px;font-size:11px;background:var(--acc);color:var(--onacc);padding:2px 9px;border-radius:99px;font-weight:700}
+.preset h4{margin:0 0 8px;font-size:18px}.preset ul{list-style:none;margin:0 0 14px;padding:0;color:var(--mute);font-size:13px;line-height:1.9}
+.preset li b{color:var(--text);font-weight:600}
+/* Tabellen */
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:9px 10px;text-align:left;vertical-align:top}
+th{color:var(--mute);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--line)}
+tr+tr td{border-top:1px solid var(--line)}
+.k-alarm{color:var(--bad)}.k-irrigation{color:var(--hum)}.k-settings,.k-mode{color:var(--warn)}.k-output{color:var(--acc)}
+.al{display:flex;align-items:center;gap:12px;padding:11px 0}.al+.al{border-top:1px solid var(--line)}
+.ok-box{display:flex;align-items:center;gap:12px;color:var(--ok)}.ok-box .ico{width:26px;height:26px}
+#toast{position:fixed;left:50%;bottom:90px;transform:translate(-50%,20px);background:var(--bg);border:1px solid var(--acc);padding:11px 20px;border-radius:99px;opacity:0;transition:.25s;pointer-events:none;z-index:20;box-shadow:0 12px 30px #0009}
+#toast.show{opacity:1;transform:translate(-50%,0)}#toast.bad{border-color:var(--bad);background:var(--bad);color:#fff}
+.bottom{display:none}
+@media(max-width:900px){
+ #clock{display:none}aside{display:none}.top{padding:16px 16px 4px}.top h1{font-size:21px}main{padding:12px 16px 110px}
+ .bottom{display:flex;position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:10;padding:6px;border-radius:22px;background:color-mix(in srgb,var(--bg) 82%,transparent);border:1px solid var(--line);backdrop-filter:blur(18px);box-shadow:0 14px 34px #000a}
+ .bottom button{flex:1;background:none;border:0;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 0;font:inherit;font-size:10px;border-radius:16px;cursor:pointer;min-width:0}
+ .bottom button.on{color:var(--text);background:var(--card2)}.bottom button.on .ico{color:var(--acc)}
+ .ring{width:112px}.ring svg{width:112px;height:112px}.ring .val b{font-size:25px}
+ #toast{bottom:100px}
+}
 </style>
 
-<header>
-  <h1>🌱 Growdashboard</h1>
-  <span class="pill" id="stagePill"></span>
-  <button class="pill ok" id="alarmPill">OK</button>
-  <span class="pill" id="clock"></span>
-</header>
-<nav><div id="nav"></div></nav>
-<main>
-  <section class="tab" id="tab-overview">
-    <div id="banner"></div>
-    <div class="grid" id="tiles"></div>
-    <div class="card" style="margin-top:12px"><h3>VPD-Bereich</h3><div class="zone"><i id="zmark"></i></div>
-      <div class="zlab"><span>0</span><span>0,4 Keimling</span><span>0,8 Wachstum</span><span>1,2 Blüte</span><span>1,6</span><span>2,0 kPa</span></div></div>
-    <div class="card" style="margin-top:12px">
-      <div class="row"><h3 class="sp" style="margin:0">Verlauf</h3><div class="chips" id="rangeChips"></div></div>
-      <div class="chips" id="seriesChips" style="margin:10px 0"></div>
-      <div class="chart"><canvas id="chart" height="230"></canvas><div id="tip"></div></div>
-      <h3 style="margin:14px 0 4px">Schaltzeiten</h3><canvas id="tl"></canvas>
-    </div>
-  </section>
+<svg width="0" height="0" style="position:absolute"><defs>
+<linearGradient id="gok" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3ddc97"/><stop offset="1" stop-color="#a3e635"/></linearGradient>
+<linearGradient id="gwarn" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffb547"/><stop offset="1" stop-color="#ffd45e"/></linearGradient>
+<linearGradient id="gbad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5d6c"/><stop offset="1" stop-color="#ff8a5c"/></linearGradient>
+<linearGradient id="gnone" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8aa196"/><stop offset="1" stop-color="#8aa196"/></linearGradient>
+</defs></svg>
 
-  <section class="tab" id="tab-devices">
-    <p class="hint">Je Gerät: <b>Auto</b> = Regelung, <b>Ein</b>/<b>Aus</b> = manuell erzwungen (bleibt nach Neustart erhalten).</p>
-    <div class="grid" id="devices"></div>
-    <div class="card" style="margin-top:12px" id="irrCard"></div>
-  </section>
-
-  <section class="tab" id="tab-climate"><div id="f-climate" class="card"></div></section>
-  <section class="tab" id="tab-light"><div id="f-light" class="card"></div></section>
-  <section class="tab" id="tab-irrigation"><div id="f-irrigation" class="card"></div></section>
-  <section class="tab" id="tab-alarms">
-    <div class="card" id="alarmList" style="margin-bottom:12px"></div>
-    <div id="f-alarms" class="card"></div>
-  </section>
-  <section class="tab" id="tab-cycle">
-    <div id="f-grow" class="card" style="margin-bottom:12px"></div>
-    <p class="hint">Voreinstellungen setzen Temperatur, Feuchte, VPD und Lichtzeiten. Es sind Richtwerte – bitte an Sorte und Umgebung anpassen.</p>
-    <div class="grid" id="presets"></div>
-  </section>
-  <section class="tab" id="tab-system">
-    <div class="grid">
-      <div class="card"><h3>System</h3><div id="sys"></div></div>
-      <div class="card"><h3>Datenexport</h3><p class="hint">Verlauf als CSV (1 Wert pro Minute).</p>
-        <div class="chips" id="exports"></div></div>
-      <div class="card"><h3>Zugang</h3><p class="hint" id="authHint"></p><button class="sec" id="tokBtn">Token ändern</button></div>
+<div class="app">
+  <aside>
+    <div class="brand"><div class="logo" id="logo"></div>Growdashboard</div>
+    <div class="nav" id="sideNav"></div>
+    <div class="side-foot" id="sideFoot"></div>
+  </aside>
+  <div class="content">
+    <div class="top">
+      <div><h1 id="greet">Hallo</h1><div class="sub2" id="greetSub"></div></div><div class="sp"></div>
+      <span class="chip" id="stagePill"></span><button class="chip good" id="alarmPill"></button><span class="chip" id="clock"></span>
     </div>
-    <div class="card" style="margin-top:12px"><h3>Hardware</h3><div style="overflow-x:auto"><table id="hw"></table></div></div>
-    <div class="card" style="margin-top:12px"><div class="row"><h3 class="sp" style="margin:0">Ereignisprotokoll</h3><div class="chips" id="evChips"></div></div>
-      <div style="overflow-x:auto;margin-top:8px"><table id="events"></table></div></div>
-  </section>
-</main>
+    <main>
+      <section class="tab" id="tab-overview">
+        <div id="banner"></div>
+        <div class="grid g3" id="tiles"></div>
+        <div class="grid g3 mt">
+          <div class="card" id="lightCard"></div>
+          <div class="card"><h3>VPD-Bereich</h3><div class="zone"><i id="zmark"></i></div>
+            <div class="scale"><span>0</span><span>0,4</span><span>0,8</span><span>1,2</span><span>1,6</span><span>2,0 kPa</span></div>
+            <div class="scale" style="margin-top:6px"><span></span><span>Keimling</span><span>Wachstum</span><span>Blüte</span><span>Spätblüte</span><span></span></div></div>
+          <div class="card" id="irrMini"></div>
+        </div>
+        <div class="card mt">
+          <div class="row"><h3 class="sp" style="margin:0">Verlauf</h3><div class="chips" id="rangeChips"></div></div>
+          <div class="legend" id="seriesChips" style="margin:14px 0 6px"></div>
+          <div class="chart"><canvas id="chart"></canvas><div id="tip"></div></div>
+          <h3 style="margin:20px 0 8px">Schaltzeiten</h3><canvas id="tl"></canvas>
+        </div>
+      </section>
+
+      <section class="tab" id="tab-devices">
+        <p class="hint"><b>Auto</b> = Regelung entscheidet · <b>Ein / Aus</b> = manuell erzwungen (bleibt nach einem Neustart erhalten).</p>
+        <div class="grid g4" id="devices"></div>
+        <div class="card mt" id="irrCard"></div>
+      </section>
+
+      <section class="tab" id="tab-climate"><div id="f-climate" class="card"></div></section>
+      <section class="tab" id="tab-light"><div id="f-light" class="card"></div></section>
+      <section class="tab" id="tab-irrigation"><div id="f-irrigation" class="card"></div></section>
+      <section class="tab" id="tab-alarms">
+        <div class="card" id="alarmList"></div><div id="f-alarms" class="card mt"></div>
+      </section>
+      <section class="tab" id="tab-cycle">
+        <div id="f-grow" class="card"></div>
+        <p class="hint mt">Voreinstellungen setzen Temperatur, Feuchte, VPD und Lichtzeiten. Es sind Richtwerte – bitte an Sorte und Umgebung anpassen.</p>
+        <div class="grid g4" id="presets"></div>
+      </section>
+      <section class="tab" id="tab-system">
+        <div class="grid g3">
+          <div class="card"><h3>System</h3><div id="sys"></div></div>
+          <div class="card"><h3>Datenexport</h3><p class="hint">Verlauf als CSV, 1 Wert pro Minute.</p><div class="chips" id="exports"></div></div>
+          <div class="card"><h3>Zugang</h3><p class="hint" id="authHint"></p><button class="sec" id="tokBtn">Token ändern</button></div>
+        </div>
+        <div class="card mt"><h3>Hardware</h3><div style="overflow-x:auto"><table id="hw"></table></div></div>
+        <div class="card mt"><div class="row"><h3 class="sp" style="margin:0">Ereignisprotokoll</h3><div class="chips" id="evChips"></div></div>
+          <div style="overflow-x:auto;margin-top:10px"><table id="events"></table></div></div>
+      </section>
+    </main>
+  </div>
+</div>
+<nav class="bottom" id="botNav"></nav>
 <div id="toast"></div>
 
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const P = { // Strichsymbole (24x24)
+  grid: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  cpu: '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>',
+  thermo: '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+  moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  drop: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  leaf: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+  sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  fan: '<path d="M10.8 16.4a6.1 6.1 0 0 1-8.6-7l5.4 1.5a6.1 6.1 0 0 1 7-8.6l-1.4 5.4a6.1 6.1 0 0 1 8.6 7l-5.4-1.5a6.1 6.1 0 0 1-7 8.6l1.4-5.4Z"/><circle cx="12" cy="12" r=".6"/>',
+  wind: '<path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2M9.6 4.6A2 2 0 1 1 11 8H2M12.6 19.4A2 2 0 1 0 14 16H2"/>',
+  drops: '<path d="M7 16.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S7.29 6.75 7 5.3c-.29 1.45-1.14 2.84-2.29 3.76S3 11.1 3 12.25c0 2.22 1.8 4.05 4 4.05z"/><path d="M12.56 6.6A10.97 10.97 0 0 0 14 3.02c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a6.98 6.98 0 0 1-11.91 4.97"/>',
+  in: '<path d="M12 3v12M6 9l6 6 6-6M5 21h14"/>', out: '<path d="M12 21V9M6 15l6-6 6 6M5 3h14"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>', plug: '<path d="M12 22v-5M9 8V2M15 8V2M18 8v5a6 6 0 0 1-12 0V8z"/>',
+};
+const ico = n => `<svg class="ico" viewBox="0 0 24 24">${P[n]}</svg>`;
+const ROLE_ICO = {light: 'sun', fan: 'fan', heater: 'flame', humidifier: 'drops', dehumidifier: 'wind', pump: 'drop', intake: 'in', vent: 'out'};
 const LABEL = {light: 'Licht', fan: 'Lüfter', heater: 'Heizung', humidifier: 'Befeuchter', dehumidifier: 'Entfeuchter',
   pump: 'Pumpe', zuluft: 'Zuluft', abluft_servo: 'Abluft-Servo'};
 const STAGE = {seedling: 'Keimling', veg: 'Wachstum', flower: 'Blüte', late: 'Spätblüte', dry: 'Trocknung'};
-const TABS = [['overview', 'Übersicht'], ['devices', 'Geräte'], ['climate', 'Klima'], ['light', 'Licht'],
-  ['irrigation', 'Bewässerung'], ['alarms', 'Alarme'], ['cycle', 'Zyklus'], ['system', 'System']];
-const SERIES = [['temp', 'Temperatur', '°C', 'var(--temp)'], ['hum', 'Luftfeuchte', '%', 'var(--hum)'], ['vpd', 'VPD', 'kPa', 'var(--vpd)']];
+const STAGE_COL = {seedling: '#4db8ff', veg: '#3ddc97', flower: '#b794ff', late: '#ff8a5c', dry: '#ffb547'};
+const TABS = [['overview', 'Übersicht', 'Übersicht', 'grid'], ['devices', 'Geräte', 'Geräte', 'cpu'], ['climate', 'Klima', 'Klima', 'thermo'],
+  ['light', 'Licht', 'Licht', 'sun'], ['irrigation', 'Bewässerung', 'Wasser', 'drop'], ['alarms', 'Alarme', 'Alarme', 'bell'],
+  ['cycle', 'Zyklus', 'Zyklus', 'leaf'], ['system', 'System', 'System', 'sliders']];
+const SERIES = [['temp', 'Temperatur', '°C', '--temp'], ['hum', 'Luftfeuchte', '%', '--hum'], ['vpd', 'VPD', 'kPa', '--vpd']];
 const RANGES = [['1h', '1 Std'], ['6h', '6 Std'], ['24h', '24 Std'], ['7d', '7 Tage']];
 
-// Formulare: Grenzen (min/max) kommen vom Server (SPEC), hier nur Beschriftung
 const FORMS = {
   climate: {title: 'Klimaregelung', fields: [
     {k: 'control', l: 'Regelmodus', t: 'select', o: [['temp_hum', 'Temperatur + Luftfeuchte'], ['vpd', 'VPD (Dampfdruckdefizit)']]},
     {k: 'temp_day', l: 'Temperatur Tag', u: '°C', step: .5}, {k: 'temp_night', l: 'Temperatur Nacht', u: '°C', step: .5},
-    {k: 'temp_hyst', l: 'Temperatur-Hysterese', u: '±°C', step: .1},
+    {k: 'temp_hyst', l: 'Temperatur-Hysterese', u: '± °C', step: .1},
     {k: 'hum_day', l: 'Luftfeuchte Tag', u: '%', step: 1, show: ['control', 'temp_hum']},
     {k: 'hum_night', l: 'Luftfeuchte Nacht', u: '%', step: 1, show: ['control', 'temp_hum']},
-    {k: 'hum_hyst', l: 'Feuchte-Hysterese', u: '±%', step: 1, show: ['control', 'temp_hum']},
+    {k: 'hum_hyst', l: 'Feuchte-Hysterese', u: '± %', step: 1, show: ['control', 'temp_hum']},
     {k: 'vpd_day', l: 'VPD Tag', u: 'kPa', step: .05, show: ['control', 'vpd']},
     {k: 'vpd_night', l: 'VPD Nacht', u: 'kPa', step: .05, show: ['control', 'vpd']},
-    {k: 'vpd_hyst', l: 'VPD-Hysterese', u: '±kPa', step: .05, show: ['control', 'vpd']},
+    {k: 'vpd_hyst', l: 'VPD-Hysterese', u: '± kPa', step: .05, show: ['control', 'vpd']},
     {k: 'leaf_offset', l: 'Blatt-Temperaturversatz', u: '°C', step: .5},
     {k: 'fan_min_per_hour', l: 'Lüfter-Grundlauf pro Stunde', u: 'min', step: 1}],
-   hint: 'Im VPD-Modus rechnet der Controller das Ziel-VPD bei der aktuellen Temperatur in eine Feuchte-Vorgabe um. Der Blattversatz (meist −1…−3 °C) gibt an, wie viel kühler die Blattoberfläche als die Luft ist.'},
+   hint: 'Im VPD-Modus rechnet der Controller das Ziel-VPD bei der aktuellen Temperatur in eine Feuchte-Vorgabe um. Der Blattversatz (meist −1 … −3 °C) gibt an, wie viel kühler die Blattoberfläche als die Luft ist.'},
   light: {title: 'Licht', fields: [
     {k: 'enabled', l: 'Lichtzeitplan aktiv', t: 'bool'}, {k: 'on', l: 'Licht an', t: 'time'}, {k: 'off', l: 'Licht aus', t: 'time'}],
-   hint: 'Licht-aus < Licht-an läuft über Mitternacht. Der Tag/Nacht-Wechsel steuert auch die Klima-Sollwerte.', photo: true},
+   hint: 'Licht-aus vor Licht-an läuft über Mitternacht. Der Tag/Nacht-Wechsel steuert auch die Klima-Sollwerte.', photo: true},
   irrigation: {title: 'Bewässerung', fields: [
     {k: 'enabled', l: 'Automatische Bewässerung', t: 'bool'}, {k: 'interval_min', l: 'Intervall', u: 'min', step: 1},
-    {k: 'duration_s', l: 'Pumpendauer', u: 's', step: 1}, {k: 'from_hour', l: 'Erlaubt ab', u: 'Uhr', step: 1},
-    {k: 'to_hour', l: 'Erlaubt bis', u: 'Uhr', step: 1}]},
+    {k: 'duration_s', l: 'Pumpendauer', u: 's', step: 1}, {k: 'from_hour', l: 'Erlaubt ab', u: 'Uhr', step: 1}, {k: 'to_hour', l: 'Erlaubt bis', u: 'Uhr', step: 1}]},
   alarms: {title: 'Alarmgrenzen', fields: [
-    {k: 'enabled', l: 'Alarme aktiv', t: 'bool'}, {k: 'temp_min', l: 'Temperatur min', u: '°C', step: .5},
-    {k: 'temp_max', l: 'Temperatur max', u: '°C', step: .5}, {k: 'hum_min', l: 'Luftfeuchte min', u: '%', step: 1},
-    {k: 'hum_max', l: 'Luftfeuchte max', u: '%', step: 1}, {k: 'delay_min', l: 'Verzögerung bis Alarm', u: 'min', step: 1}],
+    {k: 'enabled', l: 'Alarme aktiv', t: 'bool'}, {k: 'temp_min', l: 'Temperatur min', u: '°C', step: .5}, {k: 'temp_max', l: 'Temperatur max', u: '°C', step: .5},
+    {k: 'hum_min', l: 'Luftfeuchte min', u: '%', step: 1}, {k: 'hum_max', l: 'Luftfeuchte max', u: '%', step: 1}, {k: 'delay_min', l: 'Verzögerung bis Alarm', u: 'min', step: 1}],
    hint: 'Ein Alarm löst erst aus, wenn die Grenze so lange verletzt bleibt. Ausfall von Sensor oder Gerät meldet sich nach 60 s.'},
   grow: {title: 'Grow-Zyklus', fields: [
     {k: 'stage', l: 'Phase', t: 'select', o: [['', '– keine –'], ['seedling', 'Keimling'], ['veg', 'Wachstum'], ['flower', 'Blüte'], ['late', 'Spätblüte'], ['dry', 'Trocknung']]},
@@ -168,124 +262,170 @@ const FORMS = {
 let S = null, CFG = null, range = '1h', hist = [], shown = new Set(['temp', 'hum', 'vpd']), evFilter = '', hover = -1;
 let token = ''; try { token = localStorage.token || ''; } catch (e) {}
 
-function toast(msg, bad) {
-  const t = $('#toast'); t.textContent = msg; t.className = 'show' + (bad ? ' bad' : '');
-  clearTimeout(toast.h); toast.h = setTimeout(() => t.className = '', 2600);
-}
+function toast(msg, bad) { const t = $('#toast'); t.textContent = msg; t.className = 'show' + (bad ? ' bad' : ''); clearTimeout(toast.h); toast.h = setTimeout(() => t.className = '', 2600); }
 async function api(path, body, retried) {
   const opt = body === undefined ? {} : {method: 'POST', body: JSON.stringify(body)};
   opt.headers = {'X-Token': token};
   const r = await fetch(path, opt);
   if (r.status === 401 && !retried) {
-    const t = prompt('Zugangs-Token eingeben:');
-    if (t === null) throw new Error('Token erforderlich');
-    token = t; try { localStorage.token = t; } catch (e) {}
-    return api(path, body, true);
+    const t = prompt('Zugangs-Token eingeben:'); if (t === null) throw new Error('Token erforderlich');
+    token = t; try { localStorage.token = t; } catch (e) {} return api(path, body, true);
   }
   const data = r.headers.get('content-type')?.includes('json') ? await r.json() : await r.text();
   if (!r.ok) { const e = new Error(data.error || 'Fehler'); e.data = data; throw e; }
   return data;
 }
+const cssv = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const rgba = (c, a) => { const d = document.createElement('i'); d.style.color = c; document.body.append(d); const m = getComputedStyle(d).color.match(/[\d.]+/g); d.remove(); return `rgba(${m[0]},${m[1]},${m[2]},${a})`; };
 
 // ---- Navigation ----
+$('#logo').innerHTML = ico('leaf');
+const navHTML = long => TABS.map(([id, l, s, i]) => `<button data-t="${id}">${ico(i)}<span>${long ? l : s}</span></button>`).join('');
+$('#sideNav').innerHTML = navHTML(true); $('#botNav').innerHTML = navHTML(false);
 function showTab(id) {
   if (!TABS.some(t => t[0] === id)) id = 'overview';
   document.querySelectorAll('.tab').forEach(e => e.classList.toggle('on', e.id === 'tab-' + id));
-  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.t === id));
-  location.hash = id;
-  if (id === 'overview') loadHistory();
-  if (id === 'system' || id === 'alarms') loadEvents();
+  document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === id));
+  location.hash = id; scrollTo(0, 0);
+  if (id === 'overview') loadHistory(); if (id === 'system' || id === 'alarms') loadEvents();
 }
-$('#nav').innerHTML = TABS.map(([id, l]) => `<button data-t="${id}">${l}</button>`).join('');
-$('#nav').onclick = e => e.target.dataset.t && showTab(e.target.dataset.t);
+document.addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (b) showTab(b.dataset.t); });
 $('#alarmPill').onclick = () => S?.alarms.length && showTab('alarms');
 
 // ---- Übersicht ----
-function tileClass(v, target, hyst, lo, hi) {
-  if (v == null) return 'none';
-  if (v < lo || v > hi) return 'bad';
-  return Math.abs(v - target) > hyst ? 'warn' : '';
+function judge(v, target, hyst, lo, hi) {
+  if (v == null) return 'none'; if (v < lo || v > hi) return 'bad'; return Math.abs(v - target) > hyst ? 'warn' : 'ok';
 }
+const STATE_TXT = {ok: 'Im Zielbereich', warn: 'Abweichung', bad: 'Außerhalb der Grenzen', none: 'Keine Daten'};
+function gauge(v, min, max, target, st, d) {
+  const R = 54, C = 2 * Math.PI * R, A = C * .75, cl = x => Math.max(0, Math.min(1, x));
+  const f = v == null ? 0 : cl((v - min) / (max - min)), ang = (135 + 270 * cl((target - min) / (max - min))) * Math.PI / 180;
+  const p = (r, k) => [(70 + r * Math.cos(ang)).toFixed(1), (70 + r * Math.sin(ang)).toFixed(1)][k];
+  return `<div class="ring"><svg viewBox="0 0 140 140"><g transform="rotate(135 70 70)" fill="none" stroke-linecap="round" stroke-width="11">
+    <circle cx="70" cy="70" r="${R}" stroke="rgba(128,150,140,.2)" stroke-dasharray="${A} ${C}"/>
+    <circle cx="70" cy="70" r="${R}" stroke="url(#g${st})" stroke-dasharray="${A * f} ${C}"/></g>
+    <line x1="${p(44, 0)}" y1="${p(44, 1)}" x2="${p(65, 0)}" y2="${p(65, 1)}" stroke="var(--text)" stroke-width="2.5" stroke-linecap="round" opacity=".85"/></svg>
+    <div class="val"><b>${v == null ? '–' : v.toFixed(d)}</b></div></div>`;
+}
+function spark(key, col) {
+  const v = hist.map(r => r[key]).filter(x => x != null).slice(-90); if (v.length < 3) return '<div class="spark"></div>';
+  const lo = Math.min(...v), hi = Math.max(...v), rg = hi - lo || 1, n = v.length;
+  const pts = v.map((y, i) => [(i / (n - 1) * 200).toFixed(1), (34 - (y - lo) / rg * 30).toFixed(1)]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p.join(' ')).join(' ');
+  return `<svg class="spark" viewBox="0 0 200 38" preserveAspectRatio="none"><defs><linearGradient id="sp${key}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".35"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${line} L200 38 L0 38Z" fill="url(#sp${key})"/><path d="${line}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+const hm = min => { const m = ((min % 1440) + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
 function renderOverview() {
   const r = S.readings, st = S.stats, t = S.targets, c = CFG?.values || {}, cl = c.climate || {}, al = c.alarms || {};
-  const tiles = [
-    ['Temperatur', r.temp, '°C', t.temp, tileClass(r.temp, t.temp, cl.temp_hyst ?? 1, al.temp_min ?? -99, al.temp_max ?? 99), st.temp, 1],
-    ['Luftfeuchte', r.hum, '%', t.hum, tileClass(r.hum, t.hum, cl.hum_hyst ?? 5, al.hum_min ?? -99, al.hum_max ?? 999), st.hum, 1],
-    ['VPD', S.vpd, 'kPa', t.vpd, tileClass(S.vpd, t.vpd, (cl.vpd_hyst ?? .1) * 1.5, 0, 9), st.vpd, 2]];
-  $('#tiles').innerHTML = tiles.map(([n, v, u, tg, cls, s, d]) => `<div class="card tile ${cls}"><h3>${n}</h3>
-    <div class="big">${v == null ? '–' : v.toFixed(d)}<small>${u}</small></div>
-    <div class="sub">Soll ${tg} ${u}${n === 'VPD' && t.control !== 'vpd' ? ' (Info)' : ''} · ${S.is_day ? '☀ Tag' : '🌙 Nacht'}</div>
-    ${s ? `<div class="sub">24 h: ${s.min} … ${s.max} (Ø ${s.avg})</div>` : ''}</div>`).join('');
+  const T = [
+    ['Temperatur', 'thermo', r.temp, '°C', t.temp, judge(r.temp, t.temp, cl.temp_hyst ?? 1, al.temp_min ?? -99, al.temp_max ?? 99), st.temp, 1, 10, 40, '--temp', 'temp'],
+    ['Luftfeuchte', 'drops', r.hum, '%', t.hum, judge(r.hum, t.hum, cl.hum_hyst ?? 5, al.hum_min ?? -99, al.hum_max ?? 999), st.hum, 0, 0, 100, '--hum', 'hum'],
+    ['VPD', 'wind', S.vpd, 'kPa', t.vpd, judge(S.vpd, t.vpd, (cl.vpd_hyst ?? .1) * 1.5, 0, 9), st.vpd, 2, 0, 2.4, '--vpd', 'vpd']];
+  $('#tiles').innerHTML = T.map(([n, ic, v, u, tg, sc, s, d, lo, hi, cv, key]) => {
+    const col = cssv(cv), sv = {ok: '--ok', warn: '--warn', bad: '--bad', none: '--mute'}[sc];
+    return `<div class="card gcard" style="--gc:var(${cv});--sc:var(${sv})"><h3>${ico(ic)}${n}</h3><div class="gwrap">${gauge(v, lo, hi, tg, sc, d)}
+      <div class="gmeta"><div class="state"><i></i>${STATE_TXT[sc]}</div>
+      <div class="t">Soll <b>${tg} ${u}</b>${key === 'vpd' && t.control !== 'vpd' ? ' <small>(Info)</small>' : ''}</div>
+      <div class="t">${v == null ? '–' : '<b>' + v.toFixed(d) + '</b> ' + u + ' jetzt'}</div>
+      ${s ? `<div class="t">24 h: ${s.min}–${s.max} · Ø ${s.avg}</div>` : ''}</div></div>${spark(key, col)}</div>`;
+  }).join('');
   $('#zmark').style.left = Math.min(100, (S.vpd ?? 0) / 2 * 100) + '%';
-  $('#banner').innerHTML = S.alarms.length ? `<div class="banner">${S.alarms.map(a => `<div>⚠ ${esc(a.msg)}</div>`).join('')}</div>` : '';
+  $('#banner').innerHTML = S.alarms.length ? `<div class="banner">${ico('bell')}<div>${S.alarms.map(a => `<div><b>${esc(a.msg)}</b></div>`).join('')}</div></div>` : '';
+  renderLight(); renderIrrMini();
+}
+function renderLight() {
+  const l = CFG?.values.light; if (!l) return;
+  const tm = s => +s.slice(0, 2) * 60 + +s.slice(3, 5), on = tm(l.on), off = tm(l.off), now = tm(S.time.slice(11, 16));
+  const dur = ((off - on) % 1440 + 1440) % 1440 || 1440, pos = ((now - on) % 1440 + 1440) % 1440;
+  const isOn = l.enabled && pos < dur, left = +((on / 1440) * 100).toFixed(2), w = +(dur / 1440 * 100).toFixed(2);
+  const segs = left + w > 100 ? [[left, 100 - left], [0, left + w - 100]] : [[left, w]];
+  const mins = isOn ? dur - pos : ((on - now) % 1440 + 1440) % 1440;
+  $('#lightCard').innerHTML = `<h3>${ico(isOn ? 'sun' : 'moon')} Lichtzyklus</h3><div class="row"><div style="font-size:26px;font-weight:700">${l.enabled ? (isOn ? '☀ Tag' : '🌙 Nacht') : 'Deaktiviert'}</div><div class="sp"></div><div class="sub">${hm(dur)} h Licht</div></div>
+    <div class="cyc">${l.enabled ? segs.map(([a, b]) => `<i style="left:${a}%;width:${b}%"></i>`).join('') : ''}<u style="left:${now / 14.4}%"></u></div>
+    <div class="scale"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div>
+    ${l.enabled ? `<div class="sub" style="margin-top:10px">${isOn ? 'Licht aus um ' + l.off : 'Licht an um ' + l.on} · in ${Math.floor(mins / 60)} h ${mins % 60} min</div>` : ''}`;
+}
+function renderIrrMini() {
+  const i = S.irrigation, f = t => t ? t.replace('T', ' ').slice(5, 16) : '–';
+  $('#irrMini').innerHTML = `<h3>${ico('drop')} Bewässerung</h3><div style="font-size:26px;font-weight:700;color:${i.running ? 'var(--hum)' : 'var(--text)'}">${i.running ? 'läuft …' : 'Bereit'}</div>
+    <div class="sub" style="margin-top:8px">Zuletzt: <b style="color:var(--text)">${f(i.last)}</b></div><div class="sub">Nächste: <b style="color:var(--text)">${f(i.next)}</b></div>
+    <button class="sec" style="margin-top:12px" data-t="devices">Zu den Geräten</button>`;
 }
 function renderHeader() {
+  const h = +S.time.slice(11, 13), g = h < 5 ? 'Gute Nacht' : h < 11 ? 'Guten Morgen' : h < 17 ? 'Guten Tag' : h < 22 ? 'Guten Abend' : 'Gute Nacht';
+  const act = Object.values(S.outputs).filter(o => o.state).length;
+  $('#greet').textContent = g; $('#greetSub').textContent = `${act} von ${Object.keys(S.outputs).length} Geräten aktiv · ${S.is_day ? 'Tagphase' : 'Nachtphase'}`;
   const n = S.alarms.length, p = $('#alarmPill');
-  p.textContent = n ? `⚠ ${n} Alarm${n > 1 ? 'e' : ''}` : '✓ Alles OK'; p.className = 'pill ' + (n ? 'bad' : 'ok');
-  const g = S.grow; $('#stagePill').textContent = g.stage ? `${STAGE[g.stage]}${g.day ? ' · Tag ' + g.day : ''}` : 'Keine Phase';
-  $('#clock').textContent = S.time.slice(11, 16);
+  p.innerHTML = `<span class="d"></span>${n ? `${n} Alarm${n > 1 ? 'e' : ''}` : 'Alles in Ordnung'}`; p.className = 'chip ' + (n ? 'alarm' : 'good');
+  const gr = S.grow, sp = $('#stagePill');
+  sp.innerHTML = gr.stage ? `<span class="d" style="background:${STAGE_COL[gr.stage]}"></span>${STAGE[gr.stage]}${gr.day ? ' · Tag ' + gr.day : ''}` : 'Keine Phase gewählt';
+  $('#clock').textContent = S.time.slice(11, 16) + ' Uhr';
+  $('#sideFoot').innerHTML = `<div style="color:var(--text);font-weight:600;margin-bottom:2px">${n ? '⚠ ' + n + ' Alarm' + (n > 1 ? 'e' : '') : '✓ Alles in Ordnung'}</div>Sensoren: ${S.stale ? 'veraltet' : 'aktuell'}`;
 }
 
 // ---- Diagramm ----
 $('#rangeChips').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-r="${r}">${l}</button>`).join('');
-$('#seriesChips').innerHTML = SERIES.map(([k, l, u, c]) => `<button class="chip s on" data-k="${k}" style="--c:${c}">${l}</button>`).join('');
+$('#seriesChips').innerHTML = SERIES.map(([k, l, u, c]) => `<button class="chip s on" data-k="${k}" style="--c:var(${c})">${l}</button>`).join('');
 $('#rangeChips').onclick = e => { if (e.target.dataset.r) { range = e.target.dataset.r; loadHistory(); } };
 $('#seriesChips').onclick = e => { const k = e.target.dataset.k; if (!k) return; shown.has(k) ? shown.delete(k) : shown.add(k); drawAll(); };
 async function loadHistory() {
   document.querySelectorAll('#rangeChips .chip').forEach(b => b.classList.toggle('on', b.dataset.r === range));
   try { hist = await api('/api/history?range=' + range); } catch (e) { return; }
-  drawAll();
+  drawAll(); if (S) renderOverview();
 }
-function css(v) { const d = document.createElement('i'); d.style.color = v; document.body.append(d); const c = getComputedStyle(d).color; d.remove(); return c; }
 function sizeCanvas(cv, h) {
   const dpr = devicePixelRatio || 1, w = cv.clientWidth; cv.width = w * dpr; cv.height = h * dpr; cv.style.height = h + 'px';
   const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [g, w, h];
 }
-const PAD = {l: 8, r: 8, t: 10, b: 22};
-function xAt(i, n, w) { return PAD.l + (n <= 1 ? 0 : i / (n - 1)) * (w - PAD.l - PAD.r); }
+const PAD = {l: 44, r: 44, t: 12, b: 26};
+const xAt = (i, n, w) => PAD.l + (n <= 1 ? 0 : i / (n - 1)) * (w - PAD.l - PAD.r);
+function scaleOf(k) { const v = hist.map(r => r[k]).filter(x => x != null); if (!v.length) return null; const lo = Math.min(...v), hi = Math.max(...v), m = (hi - lo) * .2 || 1; return [lo - m, hi + m]; }
+function smooth(g, pts) { if (pts.length < 2) return; g.moveTo(...pts[0]); for (let i = 1; i < pts.length - 1; i++) g.quadraticCurveTo(...pts[i], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2); g.lineTo(...pts[pts.length - 1]); }
 function drawAll() {
-  document.querySelectorAll('#seriesChips .chip').forEach(b => b.classList.toggle('on', shown.has(b.dataset.k)));
-  drawChart(); drawTimeline();
+  document.querySelectorAll('#seriesChips .chip').forEach(b => b.classList.toggle('on', shown.has(b.dataset.k))); drawChart(); drawTimeline();
 }
 function drawChart() {
   const cv = $('#chart'); if (!cv.clientWidth) return;
-  const [g, w, h] = sizeCanvas(cv, 230), n = hist.length, line = css('var(--line)'), mute = css('var(--mute)');
-  g.clearRect(0, 0, w, h); g.strokeStyle = line; g.fillStyle = mute; g.font = '11px system-ui'; g.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) { const y = PAD.t + i * (h - PAD.t - PAD.b) / 4; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(w - PAD.r, y); g.stroke(); }
-  if (n < 2) { g.fillText('Noch zu wenig Daten …', PAD.l + 6, h / 2); return; }
-  const fmt = i => range === '7d' || range === '24h' && false ? hist[i].t.slice(5, 10) : hist[i].t.slice(11, 16);
-  [0, .25, .5, .75, 1].forEach(f => { const i = Math.round(f * (n - 1)); g.textAlign = f === 0 ? 'left' : f === 1 ? 'right' : 'center';
-    g.fillText(range === '7d' ? hist[i].t.slice(5, 10) + ' ' + hist[i].t.slice(11, 16) : hist[i].t.slice(11, 16), xAt(i, n, w), h - 6); });
-  for (const [k, , , col] of SERIES) {
-    if (!shown.has(k)) continue;
-    const v = hist.map(r => r[k]); const vals = v.filter(x => x != null); if (!vals.length) continue;
-    let lo = Math.min(...vals), hi = Math.max(...vals); const m = (hi - lo) * .15 || 1; lo -= m; hi += m;
-    g.strokeStyle = css(col); g.lineWidth = 2; g.beginPath(); let started = false;
-    v.forEach((y, i) => { if (y == null) { started = false; return; }
-      const X = xAt(i, n, w), Y = PAD.t + (1 - (y - lo) / (hi - lo)) * (h - PAD.t - PAD.b); started ? g.lineTo(X, Y) : g.moveTo(X, Y); started = true; });
-    g.stroke();
-  }
-  if (hover >= 0 && hover < n) { const X = xAt(hover, n, w); g.strokeStyle = mute; g.lineWidth = 1; g.beginPath(); g.moveTo(X, PAD.t); g.lineTo(X, h - PAD.b); g.stroke(); }
+  const [g, w, h] = sizeCanvas(cv, innerWidth < 600 ? 240 : 290), n = hist.length, line = rgba(cssv('--text'), .08), mute = cssv('--mute');
+  g.clearRect(0, 0, w, h); g.font = '11px system-ui'; g.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const y = PAD.t + i * (h - PAD.t - PAD.b) / 4; g.strokeStyle = line; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(w - PAD.r, y); g.stroke(); }
+  if (n < 2) { g.fillStyle = mute; g.textAlign = 'center'; g.fillText('Noch zu wenig Daten – der Verlauf füllt sich im Minutentakt …', w / 2, h / 2); return; }
+  g.fillStyle = mute; [0, .25, .5, .75, 1].forEach(f => { const i = Math.round(f * (n - 1)); g.textAlign = f === 0 ? 'left' : f === 1 ? 'right' : 'center';
+    g.fillText(range === '7d' ? hist[i].t.slice(5, 10) + ' ' + hist[i].t.slice(11, 16) : hist[i].t.slice(11, 16), xAt(i, n, w), h - 7); });
+  const vis = SERIES.filter(s => shown.has(s[0]) && scaleOf(s[0])), H = h - PAD.t - PAD.b;
+  vis.forEach(([k, , u, cv2], idx) => {
+    const [lo, hi] = scaleOf(k), col = cssv(cv2), Y = y => PAD.t + (1 - (y - lo) / (hi - lo)) * H;
+    const pts = []; hist.forEach((r, i) => { if (r[k] != null) pts.push([xAt(i, n, w), Y(r[k])]); });
+    const grad = g.createLinearGradient(0, PAD.t, 0, h - PAD.b); grad.addColorStop(0, rgba(col, .22)); grad.addColorStop(1, rgba(col, 0));
+    g.beginPath(); smooth(g, pts); g.lineTo(pts[pts.length - 1][0], h - PAD.b); g.lineTo(pts[0][0], h - PAD.b); g.closePath(); g.fillStyle = grad; g.fill();
+    g.beginPath(); smooth(g, pts); g.strokeStyle = col; g.lineWidth = 2.4; g.lineJoin = g.lineCap = 'round'; g.stroke();
+    if (idx < 2) { g.fillStyle = col; g.textAlign = idx ? 'left' : 'right'; const x = idx ? w - PAD.r + 8 : PAD.l - 8;
+      for (let i = 0; i <= 4; i++) g.fillText((hi - (hi - lo) * i / 4).toFixed(k === 'vpd' ? 2 : hi - lo < 8 ? 1 : 0), x, PAD.t + i * H / 4 + 4); }
+    if (hover >= 0 && hover < n && hist[hover][k] != null) { g.beginPath(); g.arc(xAt(hover, n, w), Y(hist[hover][k]), 4.5, 0, 7); g.fillStyle = cssv('--bg'); g.fill(); g.strokeStyle = col; g.lineWidth = 2.4; g.stroke(); }
+  });
+  if (hover >= 0 && hover < n) { const X = xAt(hover, n, w); g.strokeStyle = rgba(cssv('--text'), .3); g.lineWidth = 1; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(X, PAD.t); g.lineTo(X, h - PAD.b); g.stroke(); g.setLineDash([]); }
 }
 function drawTimeline() {
   const cv = $('#tl'), names = S ? Object.keys(S.outputs) : []; if (!cv.clientWidth || !names.length) return;
-  const rowH = 16, [g, w] = sizeCanvas(cv, names.length * rowH + 4), n = hist.length;
-  g.clearRect(0, 0, w, 300); g.font = '11px system-ui'; g.textBaseline = 'middle';
+  const rowH = 22, G = innerWidth < 600 ? 74 : 110, [g, w] = sizeCanvas(cv, names.length * rowH), n = hist.length, X = i => G + (n <= 1 ? 0 : i / (n - 1)) * (w - G - 4);
+  g.font = '12px system-ui'; g.textBaseline = 'middle';
   names.forEach((nm, j) => {
-    const y = j * rowH + 2; g.fillStyle = css('var(--panel2)'); g.fillRect(PAD.l, y + 2, w - PAD.l - PAD.r, rowH - 5);
-    g.fillStyle = css('var(--accent)');
-    for (let i = 0; i < n; i++) if (hist[i][nm]) { const x0 = xAt(i, n, w), x1 = xAt(Math.min(i + 1, n - 1), n, w) || x0; g.fillRect(x0, y + 2, Math.max(1.5, x1 - x0), rowH - 5); }
-    g.fillStyle = css('var(--text)'); g.fillText(LABEL[nm] || nm, PAD.l + 4, y + rowH / 2);
+    const y = j * rowH + 4, hh = rowH - 8; g.fillStyle = rgba(cssv('--text'), .06); g.beginPath(); g.roundRect(G, y, w - G - 4, hh, 5); g.fill();
+    const gr = g.createLinearGradient(G, 0, w, 0); gr.addColorStop(0, cssv('--acc')); gr.addColorStop(1, cssv('--acc2')); g.fillStyle = gr;
+    let i = 0; while (i < n) { if (!hist[i][nm]) { i++; continue; } let k = i; while (k + 1 < n && hist[k + 1][nm]) k++;
+      g.beginPath(); g.roundRect(X(i), y, Math.max(3, X(Math.min(k + 1, n - 1)) - X(i)), hh, 5); g.fill(); i = k + 1; }
+    g.fillStyle = cssv('--mute'); g.textAlign = 'left'; g.fillText(LABEL[nm] || nm, 2, y + hh / 2);
   });
 }
 $('#chart').onmousemove = e => {
   if (hist.length < 2) return;
-  const cv = $('#chart'), rect = cv.getBoundingClientRect(), w = rect.width, x = e.clientX - rect.left;
+  const rect = $('#chart').getBoundingClientRect(), w = rect.width, x = e.clientX - rect.left;
   hover = Math.max(0, Math.min(hist.length - 1, Math.round((x - PAD.l) / (w - PAD.l - PAD.r) * (hist.length - 1))));
   const r = hist[hover], tip = $('#tip');
   tip.innerHTML = `<b>${r.t.slice(5, 10)} ${r.t.slice(11, 16)}</b><br>` + SERIES.filter(s => shown.has(s[0]) && r[s[0]] != null)
-    .map(([k, l, u]) => `${l}: ${r[k]} ${u}`).join('<br>');
-  tip.style.display = 'block'; tip.style.left = Math.min(x + 12, w - 150) + 'px'; tip.style.top = '10px'; drawChart();
+    .map(([k, l, u, c]) => `<span style="color:var(${c})">●</span> ${l}: <b>${r[k]}</b> ${u}`).join('<br>');
+  tip.style.display = 'block'; tip.style.left = (x > w / 2 ? x - tip.offsetWidth - 14 : x + 14) + 'px'; tip.style.top = '14px'; drawChart();
 };
 $('#chart').onmouseleave = () => { hover = -1; $('#tip').style.display = 'none'; drawChart(); };
 addEventListener('resize', () => S && drawAll());
@@ -293,15 +433,16 @@ addEventListener('resize', () => S && drawAll());
 // ---- Geräte ----
 function renderDevices() {
   $('#devices').innerHTML = Object.entries(S.outputs).map(([n, o]) => {
-    const info = Object.entries(o.info).filter(([k]) => k !== 'type').map(([k, v]) => `${k}: ${v}`).join(' · ');
-    return `<div class="card dev"><div class="name"><span class="dot ${o.ok === false ? 'err' : o.state ? 'on' : ''}"></span>${esc(LABEL[n] || n)}
-      <span class="sp"></span><small class="sub">${o.state ? 'EIN' : 'AUS'}</small></div>
-      <div class="info">${esc(o.info.type)} · Rolle ${esc(o.role)}${o.ok === false ? ' · <span style="color:var(--bad)">nicht erreichbar</span>' : ''}<br>${esc(info)}</div>
+    const info = Object.entries(o.info).filter(([k]) => k !== 'type').map(([k, v]) => `${k}: ${v}`).join(' · '), bad = o.ok === false;
+    return `<div class="card dev ${o.state ? 'on' : ''} ${bad ? 'err' : ''}"><div class="hd"><div class="ib">${ico(ROLE_ICO[o.role] || 'plug')}</div>
+      <div class="sp"><div class="nm">${esc(LABEL[n] || n)}</div><div class="st">${bad ? '<span style="color:var(--bad)">nicht erreichbar</span>' : o.state ? 'Läuft' : 'Aus'} · ${esc(o.info.type)}</div></div></div>
+      <div class="info">${esc(info)}</div>
       <div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${{auto: 'Auto', on: 'Ein', off: 'Aus'}[m]}</button>`).join('')}</div></div>`;
   }).join('');
   const i = S.irrigation, f = t => t ? t.replace('T', ' ').slice(5, 16) : '–';
-  $('#irrCard').innerHTML = `<h3>Bewässerung</h3><div class="row"><div class="sp">Zuletzt: <b>${f(i.last)}</b> · Nächste: <b>${f(i.next)}</b>${i.running ? ' · <b style="color:var(--hum)">läuft …</b>' : ''}</div>
-    <button class="pri" id="waterBtn">💧 Jetzt gießen</button></div>`;
+  $('#irrCard').innerHTML = `<div class="row"><div style="width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:var(--card2);color:var(--hum)">${ico('drop')}</div>
+    <div class="sp"><div style="font-weight:600;font-size:16px">Bewässerung</div><div class="sub">Zuletzt <b style="color:var(--text)">${f(i.last)}</b> · Nächste <b style="color:var(--text)">${f(i.next)}</b>${i.running ? ' · <b style="color:var(--hum)">läuft …</b>' : ''}</div></div>
+    <button class="pri" id="waterBtn">Jetzt gießen</button></div>`;
   $('#waterBtn').onclick = async () => { if (!confirm('Pumpe jetzt für ' + CFG.values.irrigation.duration_s + ' s starten?')) return;
     try { S = await api('/api/irrigation/run', {}); renderAll(); toast('Bewässerung gestartet'); } catch (e) { toast(e.message, 1); } };
 }
@@ -314,33 +455,32 @@ $('#devices').onclick = async e => {
 function buildForm(sec) {
   const F = FORMS[sec], vals = CFG.values[sec], spec = CFG.spec[sec], box = $('#f-' + sec);
   const fields = F.fields.map(f => {
-    const sp = spec[f.k], v = vals[f.k], t = f.t || 'num';
+    const sp = spec[f.k], v = vals[f.k], t = f.t || 'num', sh = f.show ? `data-sk="${f.show[0]}" data-sv="${f.show[1]}"` : '';
+    if (t === 'bool') return `<div class="fld" data-k="${f.k}" ${sh}><div class="tog"><label for="${sec}_${f.k}">${f.l}</label><input id="${sec}_${f.k}" type="checkbox" name="${f.k}" ${v ? 'checked' : ''}></div><div class="err"></div></div>`;
     let inp;
-    if (t === 'bool') inp = `<input type="checkbox" name="${f.k}" ${v ? 'checked' : ''}>`;
-    else if (t === 'select') inp = `<select name="${f.k}">${f.o.map(([val, l]) => `<option value="${val}" ${v === val ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+    if (t === 'select') inp = `<select name="${f.k}">${f.o.map(([val, l]) => `<option value="${val}" ${v === val ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
     else if (t === 'time' || t === 'date') inp = `<input type="${t}" name="${f.k}" value="${v ?? ''}">`;
-    else inp = `<input type="number" name="${f.k}" value="${v}" min="${sp[1]}" max="${sp[2]}" step="${f.step || 1}">`;
-    return `<div class="f" data-k="${f.k}" ${f.show ? `data-sk="${f.show[0]}" data-sv="${f.show[1]}"` : ''}><label>${f.l}</label><div>${inp}${f.u ? `<span class="u">${f.u}</span>` : ''}</div><div class="err"></div></div>`;
+    else inp = `<input type="number" inputmode="decimal" name="${f.k}" value="${v}" min="${sp[1]}" max="${sp[2]}" step="${f.step || 1}">`;
+    return `<div class="fld" data-k="${f.k}" ${sh}><label>${f.l}</label><div class="ig">${inp}${f.u ? `<span>${f.u}</span>` : ''}</div><div class="err"></div></div>`;
   }).join('');
-  const photo = F.photo ? `<div class="f"><label>Lichtzyklus (Schnellwahl)</label><div class="chips">${[[18, 6], [20, 4], [16, 8], [12, 12]].map(([a, b]) => `<button type="button" class="chip" data-ph="${a}">${a}/${b}</button>`).join('')}</div></div>` : '';
-  box.innerHTML = `<h3>${F.title}</h3>${F.hint ? `<p class="hint">${F.hint}</p>` : ''}<form data-sec="${sec}" novalidate>${fields}${photo}
-    <div class="row" style="margin-top:12px"><button class="pri" type="submit">Speichern</button><button class="sec" type="button" data-reset>Zurücksetzen</button></div></form>`;
+  const photo = F.photo ? `<div class="fld"><label>Lichtzyklus (Schnellwahl)</label><div class="chips">${[[18, 6], [20, 4], [16, 8], [12, 12]].map(([a, b]) => `<button type="button" class="chip" data-ph="${a}">${a} / ${b}</button>`).join('')}</div></div>` : '';
+  box.innerHTML = `<h3>${F.title}</h3>${F.hint ? `<p class="hint">${F.hint}</p>` : ''}<form data-sec="${sec}" novalidate><div class="fgrid">${fields}${photo}</div>
+    <div class="actions"><button class="pri" type="submit">Speichern</button><button class="sec" type="button" data-reset>Zurücksetzen</button></div></form>`;
   const form = $('form', box);
   const vis = () => form.querySelectorAll('[data-sk]').forEach(r => r.style.display = form.elements[r.dataset.sk].value === r.dataset.sv ? '' : 'none');
   vis(); form.onchange = vis;
   form.querySelector('[data-reset]').onclick = () => buildForm(sec);
   form.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => {
-    const on = form.elements.on.value || '06:00', [h, m] = on.split(':').map(Number), end = (h * 60 + m + +b.dataset.ph * 60) % 1440;
-    form.elements.off.value = String(Math.floor(end / 60)).padStart(2, '0') + ':' + String(end % 60).padStart(2, '0');
+    const [h, m] = (form.elements.on.value || '06:00').split(':').map(Number); form.elements.off.value = hm(h * 60 + m + +b.dataset.ph * 60);
   });
   form.onsubmit = async ev => {
-    ev.preventDefault(); form.querySelectorAll('.err').forEach(e => e.textContent = '');
+    ev.preventDefault(); form.querySelectorAll('.fld').forEach(e => e.classList.remove('bad')); form.querySelectorAll('.err').forEach(e => e.textContent = '');
     const out = {};
     F.fields.forEach(f => { const el = form.elements[f.k], t = f.t || 'num'; out[f.k] = t === 'bool' ? el.checked : t === 'num' ? parseFloat(el.value) : el.value; });
     try { const r = await api('/api/settings', {[sec]: out}); CFG.values = r.values; toast('Gespeichert ✓'); S = await api('/api/status'); renderAll(); }
     catch (e) {
       const errs = e.data?.errors || {}; let any = false;
-      for (const [p, m] of Object.entries(errs)) { const row = form.querySelector(`[data-k="${p.split('.')[1]}"] .err`); if (row) { row.textContent = m; any = true; } }
+      for (const [p, m] of Object.entries(errs)) { const row = form.querySelector(`[data-k="${p.split('.')[1]}"]`); if (row) { row.classList.add('bad'); row.querySelector('.err').textContent = m; any = true; } }
       toast(any ? 'Bitte Eingaben prüfen' : (e.message || 'Fehler'), 1);
     }
   };
@@ -351,11 +491,11 @@ function renderPresets() {
   const cur = CFG.values.grow.stage;
   $('#presets').innerHTML = Object.entries(CFG.presets).map(([k, p]) => {
     const c = p.climate, li = p.light;
-    return `<div class="card preset ${cur === k ? 'cur' : ''}"><h3>${p.label}</h3><ul>
-      ${c.temp_day != null ? `<li>Temperatur ${c.temp_day} / ${c.temp_night} °C</li>` : ''}
-      ${c.hum_day != null ? `<li>Luftfeuchte ${c.hum_day} / ${c.hum_night} %</li>` : ''}
-      ${c.vpd_day != null ? `<li>VPD ${c.vpd_day} / ${c.vpd_night} kPa</li>` : ''}
-      <li>${li.enabled === false ? 'Licht aus' : `Licht ${li.on}–${li.off}`}</li></ul>
+    return `<div class="card preset ${cur === k ? 'cur' : ''}" style="--pc:${STAGE_COL[k]}">${cur === k ? '<span class="badge">Aktiv</span>' : ''}<h4>${p.label}</h4><ul>
+      ${c.temp_day != null ? `<li>Temperatur <b>${c.temp_day} / ${c.temp_night} °C</b></li>` : ''}
+      ${c.hum_day != null ? `<li>Luftfeuchte <b>${c.hum_day} / ${c.hum_night} %</b></li>` : ''}
+      ${c.vpd_day != null ? `<li>VPD <b>${c.vpd_day} / ${c.vpd_night} kPa</b></li>` : ''}
+      <li>${li.enabled === false ? '<b>Licht aus</b>' : `Licht <b>${li.on} – ${li.off}</b>`}</li></ul>
       <button class="sec" data-p="${k}">Anwenden</button></div>`;
   }).join('');
 }
@@ -376,22 +516,21 @@ async function loadEvents() {
   const kinds = [...new Set(ev.map(e => e.kind))];
   $('#evChips').innerHTML = ['', ...kinds].map(k => `<button class="chip ${evFilter === k ? 'on' : ''}" data-k="${k}">${k ? KIND[k] || k : 'Alle'}</button>`).join('');
   $('#events').innerHTML = '<tr><th>Zeit</th><th>Art</th><th>Ereignis</th></tr>' + ev.filter(e => !evFilter || e.kind === evFilter).slice(0, 100)
-    .map(e => `<tr><td>${e.t.slice(5, 10)} ${e.t.slice(11, 19)}</td><td class="k-${e.kind}">${KIND[e.kind] || e.kind}</td><td>${esc(e.msg)}</td></tr>`).join('');
-  $('#alarmHist')?.remove();
+    .map(e => `<tr><td style="white-space:nowrap">${e.t.slice(5, 10)} ${e.t.slice(11, 19)}</td><td class="k-${e.kind}" style="white-space:nowrap">${KIND[e.kind] || e.kind}</td><td>${esc(e.msg)}</td></tr>`).join('');
 }
 $('#evChips').onclick = e => { if (e.target.dataset.k !== undefined) { evFilter = e.target.dataset.k; loadEvents(); } };
 function renderAlarms() {
-  $('#alarmList').innerHTML = `<h3>Aktive Alarme</h3>` + (S.alarms.length ? S.alarms.map(a => `<div class="row" style="padding:6px 0"><span style="color:var(--bad)">⚠</span><span class="sp">${esc(a.msg)}</span><small class="sub">seit ${a.since.slice(5, 10)} ${a.since.slice(11, 16)}</small></div>`).join('')
-    : '<div class="sub" style="color:var(--ok)">✓ Keine aktiven Alarme</div>');
+  $('#alarmList').innerHTML = `<h3>Aktive Alarme</h3>` + (S.alarms.length ? S.alarms.map(a => `<div class="al"><span class="chip alarm" style="padding:6px"><span class="d"></span></span><span class="sp">${esc(a.msg)}</span><span class="sub">seit ${a.since.slice(5, 10)} ${a.since.slice(11, 16)}</span></div>`).join('')
+    : `<div class="ok-box">${ico('check')}<div><b>Keine aktiven Alarme</b><div class="sub">Alle Werte und Geräte sind in Ordnung.</div></div></div>`);
 }
 function renderSystem() {
   const u = S.uptime_s, up = `${Math.floor(u / 86400)} d ${Math.floor(u % 86400 / 3600)} h ${Math.floor(u % 3600 / 60)} min`;
-  $('#sys').innerHTML = `<div class="sub">Laufzeit: <b>${up}</b></div><div class="sub">Regelmodus: <b>${S.targets.control === 'vpd' ? 'VPD' : 'Temperatur + Feuchte'}</b></div>
-    <div class="sub">Sensordaten: <b style="color:var(--${S.stale ? 'bad' : 'ok'})">${S.stale ? 'veraltet' : 'aktuell'}</b></div>`;
+  $('#sys').innerHTML = `<div class="sub">Laufzeit <b style="color:var(--text)">${up}</b></div><div class="sub" style="margin-top:6px">Regelmodus <b style="color:var(--text)">${S.targets.control === 'vpd' ? 'VPD' : 'Temperatur + Feuchte'}</b></div>
+    <div class="sub" style="margin-top:6px">Sensordaten <b style="color:var(--${S.stale ? 'bad' : 'ok'})">${S.stale ? 'veraltet' : 'aktuell'}</b></div>`;
   $('#hw').innerHTML = '<tr><th>Gerät</th><th>Typ</th><th>Rolle</th><th>Status</th><th>Details</th></tr>' + Object.entries(S.outputs).map(([n, o]) =>
-    `<tr><td>${esc(LABEL[n] || n)}</td><td>${esc(o.info.type)}</td><td>${esc(o.role)}</td><td style="color:var(--${o.ok === false ? 'bad' : 'ok'})">${o.ok === false ? 'nicht erreichbar' : 'OK'}</td>
-    <td>${esc(Object.entries(o.info).filter(([k]) => k !== 'type').map(([k, v]) => k + ': ' + v).join(' · '))}</td></tr>`).join('');
-  $('#authHint').textContent = CFG.auth ? 'Änderungen sind per Token geschützt.' : 'Kein Token gesetzt – jeder im Netzwerk kann Einstellungen ändern. Setze "web.token" in config.json.';
+    `<tr><td><b>${esc(LABEL[n] || n)}</b></td><td>${esc(o.info.type)}</td><td>${esc(o.role)}</td><td style="color:var(--${o.ok === false ? 'bad' : 'ok'})">${o.ok === false ? 'nicht erreichbar' : 'OK'}</td>
+    <td class="sub">${esc(Object.entries(o.info).filter(([k]) => k !== 'type').map(([k, v]) => k + ': ' + v).join(' · '))}</td></tr>`).join('');
+  $('#authHint').textContent = CFG.auth ? 'Änderungen sind per Token geschützt.' : 'Kein Token gesetzt – jeder im Netzwerk kann Einstellungen ändern. Setze „web.token“ in config.json.';
 }
 $('#exports').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-x="${r}">⬇ ${l}</button>`).join('');
 $('#exports').onclick = async e => {
@@ -413,7 +552,7 @@ async function poll() {
     S = await api('/api/status'); renderAll();
     if (!$('#tab-overview').classList.contains('on')) return;
     if (range === '1h') loadHistory(); else drawTimeline();
-  } catch (e) { $('#alarmPill').textContent = '✖ keine Verbindung'; $('#alarmPill').className = 'pill bad'; }
+  } catch (e) { const p = $('#alarmPill'); p.textContent = '✖ keine Verbindung'; p.className = 'chip alarm'; }
 }
 setInterval(poll, 5000); setInterval(() => $('#tab-overview').classList.contains('on') && range !== '1h' && loadHistory(), 60000);
 poll().then(() => showTab(location.hash.slice(1)));

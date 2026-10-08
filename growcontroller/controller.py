@@ -220,10 +220,12 @@ class Controller:
 
     def _rows(self, rng):
         hours = RANGES.get(rng, 1)
-        if hours == 1:
-            return list(self.live)
         cutoff = (datetime.now() - timedelta(hours=hours)).isoformat(timespec="seconds")
-        return [r for r in self.minutes if r["t"] >= cutoff]
+        rows = [r for r in self.minutes if r["t"] >= cutoff]
+        if hours == 1:  # gespeicherter Verlauf + frische Werte im Regeltakt (auch direkt nach einem Neustart)
+            last = rows[-1]["t"] if rows else ""
+            rows += [r for r in self.live if r["t"] > last]
+        return rows
 
     def history(self, rng="1h"):
         with self.lock:

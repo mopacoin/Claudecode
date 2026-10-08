@@ -35,6 +35,16 @@ gespeichert; sie überschreiben die Werte aus `config.json`. Geräte/Pins/Zugang
 bleiben bewusst in `config.json`. Verlauf: 1 Wert/min in `data/log-*.csv`, die letzten 7 Tage werden beim Start geladen.
 Ohne `web.token` kann jeder im Netz Einstellungen ändern – bitte ein Token setzen (Header `X-Token`, die Oberfläche fragt danach).
 
+## Sensoren (`config.json` → `sensors`)
+| driver | Sensor | Felder |
+|---|---|---|
+| `govee` | Govee-Thermo-Hygrometer per Bluetooth (H5072/74/75, H5100–05, H5174/77, H5179), Paket `bleak` | `mac` |
+| `bme280` / `dht22` / `ds18b20` | kabelgebunden | siehe `sensors.py` |
+| `sim` | simuliert (Test) | – |
+
+`"prefix": "room_"` macht einen Sensor zum reinen Anzeige-Sensor (Raumklima), er regelt nicht.
+Govee-Sensoren testen: `.venv/bin/python -m growcontroller.govee_scan <MAC> …` zeigt Rohdaten und erkannte Werte.
+
 ## Ausgangs-Typen (`config.json` → `outputs`)
 Jeder Ausgang hat `type` und optional `role` (Standard = Name). Rollen: `light`, `fan`, `heater`, `humidifier`,
 `dehumidifier`, `pump`, `vent` und `intake` (Abluft-Klappe/Zuluft, folgen dem Lüfterbedarf). Mehrere Ausgänge mit derselben Rolle schalten gemeinsam.

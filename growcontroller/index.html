@@ -6,7 +6,7 @@
 <title>Growdashboard</title>
 <style>
 :root{--bg:#070b09;--card:rgba(255,255,255,.045);--card2:rgba(255,255,255,.07);--line:rgba(255,255,255,.09);--text:#eaf3ee;--mute:#8aa196;
---acc:#3ddc97;--acc2:#a3e635;--temp:#ff8a5c;--hum:#4db8ff;--vpd:#b794ff;--ok:#3ddc97;--warn:#ffb547;--bad:#ff5d6c;
+--acc:#3ddc97;--acc2:#a3e635;--temp:#ff8a5c;--hum:#4db8ff;--vpd:#b794ff;--temp2:#ffc9a8;--hum2:#a9dcff;--ok:#3ddc97;--warn:#ffb547;--bad:#ff5d6c;
 --glow:0 0 0 1px var(--line),0 10px 30px -12px rgba(0,0,0,.6);--r:18px;--side:236px;--onacc:#03130b}
 @media(prefers-color-scheme:light){:root{--bg:#eef3f0;--card:rgba(255,255,255,.85);--card2:rgba(0,0,0,.04);--line:rgba(10,40,25,.09);--text:#13201a;--mute:#5f7569;
 --acc:#13a463;--acc2:#6aa80f;--temp:#e5532b;--hum:#1a7fd4;--vpd:#7c4ddb;--ok:#13a463;--warn:#d98a0b;--bad:#e03a4b;
@@ -175,6 +175,7 @@ tr+tr td{border-top:1px solid var(--line)}
           <div class="card"><h3>VPD-Bereich</h3><div class="zone"><i id="zmark"></i></div>
             <div class="scale"><span>0</span><span>0,4</span><span>0,8</span><span>1,2</span><span>1,6</span><span>2,0 kPa</span></div>
             <div class="scale" style="margin-top:6px"><span></span><span>Keimling</span><span>Wachstum</span><span>Blüte</span><span>Spätblüte</span><span></span></div></div>
+          <div class="card" id="roomCard" style="display:none"></div>
           <div class="card" id="irrMini"></div>
         </div>
         <div class="card mt">
@@ -248,7 +249,8 @@ const LABEL = {light: 'Licht', fan: 'Lüfter', heater: 'Heizung', humidifier: 'B
 const TABS = [['overview', 'Übersicht', 'Übersicht', 'grid'], ['devices', 'Geräte', 'Geräte', 'cpu'], ['climate', 'Klima', 'Klima', 'thermo'],
   ['light', 'Licht', 'Licht', 'sun'], ['irrigation', 'Bewässerung', 'Wasser', 'drop'], ['alarms', 'Alarme', 'Alarme', 'bell'],
   ['cycle', 'Zyklus', 'Zyklus', 'leaf'], ['system', 'System', 'System', 'sliders']];
-const SERIES = [['temp', 'Temperatur', '°C', '--temp'], ['hum', 'Luftfeuchte', '%', '--hum'], ['vpd', 'VPD', 'kPa', '--vpd']];
+const SERIES = [['temp', 'Temperatur', '°C', '--temp'], ['hum', 'Luftfeuchte', '%', '--hum'], ['vpd', 'VPD', 'kPa', '--vpd'],
+  ['room_temp', 'Raum Temp.', '°C', '--temp2'], ['room_hum', 'Raum Feuchte', '%', '--hum2']];
 const RANGES = [['1h', '1 Std'], ['6h', '6 Std'], ['24h', '24 Std'], ['7d', '7 Tage']];
 
 const FORMS = {
@@ -359,7 +361,17 @@ function renderOverview() {
   }).join('');
   $('#zmark').style.left = Math.min(100, (S.vpd ?? 0) / 2 * 100) + '%';
   $('#banner').innerHTML = S.alarms.length ? `<div class="banner">${ico('bell')}<div>${S.alarms.map(a => `<div><b>${esc(a.msg)}</b></div>`).join('')}</div></div>` : '';
-  renderLight(); renderIrrMini();
+  renderLight(); renderIrrMini(); renderRoom();
+}
+function renderRoom() {
+  const r = S.readings, card = $('#roomCard');
+  card.style.display = r.room_temp == null && r.room_hum == null ? 'none' : ''; if (card.style.display) return;
+  const d = (a, b, u) => a == null || b == null ? '' : `${a - b >= 0 ? '+' : '−'}${Math.abs(a - b).toFixed(1)} ${u}`;
+  const batt = [['Zelt', r.batt], ['Raum', r.room_batt]].filter(x => x[1] != null).map(([n, b]) => `${n} <b style="color:var(${b < 20 ? '--bad' : '--text'})">${Math.round(b)} %</b>`).join(' · ');
+  card.innerHTML = `<h3>${ico('grid')} Raumklima</h3><div class="row" style="gap:18px"><div style="font-size:26px;font-weight:700">${r.room_temp ?? '–'}<small class="sub"> °C</small></div>
+    <div style="font-size:26px;font-weight:700">${r.room_hum ?? '–'}<small class="sub"> %</small></div></div>
+    <div class="sub" style="margin-top:8px">Zelt gegenüber Raum: <b style="color:var(--text)">${d(r.temp, r.room_temp, '°C')}</b> · <b style="color:var(--text)">${d(r.hum, r.room_hum, '%')}</b></div>
+    ${batt ? `<div class="sub" style="margin-top:4px">Sensor-Akku: ${batt}</div>` : ''}`;
 }
 function renderLight() {
   const l = CFG?.values.light; if (!l) return;
@@ -393,7 +405,7 @@ function renderHeader() {
 
 // ---- Diagramm ----
 $('#rangeChips').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-r="${r}">${l}</button>`).join('');
-$('#seriesChips').innerHTML = SERIES.map(([k, l, u, c]) => `<button class="chip s on" data-k="${k}" style="--c:var(${c})">${l}</button>`).join('');
+$('#seriesChips').innerHTML = SERIES.map(([k, l, u, c]) => `<button class="chip s" data-k="${k}" style="--c:var(${c})">${l}</button>`).join('');
 $('#rangeChips').onclick = e => { if (e.target.dataset.r) { range = e.target.dataset.r; loadHistory(); } };
 $('#seriesChips').onclick = e => { const k = e.target.dataset.k; if (!k) return; shown.has(k) ? shown.delete(k) : shown.add(k); drawAll(); };
 async function loadHistory() {
@@ -410,7 +422,8 @@ const xAt = (i, n, w) => PAD.l + (n <= 1 ? 0 : i / (n - 1)) * (w - PAD.l - PAD.r
 function scaleOf(k) { const v = hist.map(r => r[k]).filter(x => x != null); if (!v.length) return null; const lo = Math.min(...v), hi = Math.max(...v), m = (hi - lo) * .2 || 1; return [lo - m, hi + m]; }
 function smooth(g, pts) { if (pts.length < 2) return; g.moveTo(...pts[0]); for (let i = 1; i < pts.length - 1; i++) g.quadraticCurveTo(...pts[i], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2); g.lineTo(...pts[pts.length - 1]); }
 function drawAll() {
-  document.querySelectorAll('#seriesChips .chip').forEach(b => b.classList.toggle('on', shown.has(b.dataset.k))); drawChart(); drawTimeline();
+  document.querySelectorAll('#seriesChips .chip').forEach(b => { b.classList.toggle('on', shown.has(b.dataset.k)); b.style.display = hist.some(r => r[b.dataset.k] != null) ? '' : 'none'; });
+  drawChart(); drawTimeline();
 }
 function drawChart() {
   const cv = $('#chart'); if (!cv.clientWidth) return;

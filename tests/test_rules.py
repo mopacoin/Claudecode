@@ -44,3 +44,17 @@ class TestDehum(unittest.TestCase):
         self.assertTrue(r["dehumidifier"]); self.assertFalse(r["fan"]); self.assertFalse(r["humidifier"])
         r = rules.climate(CL, True, 25, 70, OFF, now, has_dehum=False)
         self.assertTrue(r["fan"])
+
+
+class TestGovee(unittest.TestCase):
+    def test_formats(self):
+        from growcontroller.sensors import decode_govee
+        v = 224 * 1000 + 605  # 22.4 °C, 60.5 %
+        self.assertEqual(decode_govee(0xEC88, b"\x00" + v.to_bytes(3, "big") + bytes([87, 0])), {"temp": 22.4, "hum": 60.5, "batt": 87})
+        neg = (52 * 1000 + 400) | 0x800000  # -5.2 °C, 40 %
+        self.assertEqual(decode_govee(0xEC88, b"\x00" + neg.to_bytes(3, "big") + bytes([50, 0]))["temp"], -5.2)
+        self.assertEqual(decode_govee(0x0001, b"\x01\x01" + v.to_bytes(3, "big") + bytes([64])), {"temp": 22.4, "hum": 60.5, "batt": 64})
+        import struct
+        self.assertEqual(decode_govee(0xEC88, b"\x00" + struct.pack("<hHB", 2345, 5678, 90) + b"\x02\x00\x00"), {"temp": 23.4, "hum": 56.8, "batt": 90})
+        self.assertEqual(decode_govee(0x8801, b"\x01\x00\x01\x01" + struct.pack("<hHB", 2105, 4890, 77)), {"temp": 21.1, "hum": 48.9, "batt": 77})
+        self.assertIsNone(decode_govee(0x004C, b"\x02\x15" + b"\x00" * 21))  # Apple-iBeacon o. ä.

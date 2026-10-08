@@ -176,3 +176,20 @@ class TestExhaustServo(unittest.TestCase):
             pts, err = c.set_calibration([[0, 20], [120, 40], [180, 85]]); self.assertIsNone(err)
             c.shutdown()
             c2 = make(d); self.assertEqual(c2.cal[1], [120, 40.0]); c2.shutdown()
+
+
+class TestRoomSensor(unittest.TestCase):
+    def test_prefix_and_stale(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = {"interval_s": 5, "sensors": {"zelt": {"driver": "sim"}, "raum": {"driver": "sim", "prefix": "room_"}},
+                   "outputs": {}, "light": {}, "climate": {}, "irrigation": {"enabled": False}}
+            c = controller.Controller(cfg, d)
+
+            class Broken:
+                def read(self): raise RuntimeError("weg")
+            c.read_sensors()
+            self.assertIn("room_temp", c.readings); self.assertIn("temp", c.readings); self.assertFalse(c.stale())
+            c.sensors["zelt"] = ("", Broken()); c.last_ok = None
+            c.read_sensors()
+            self.assertTrue(c.stale())  # Raum-Sensor allein hält die Regelung nicht "aktuell"
+            c.shutdown()

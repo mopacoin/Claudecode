@@ -30,7 +30,9 @@ class Controller:
         self.saved = settings.load(self._p("settings.json"))
         for sec, d in settings.DEFAULTS.items():  # Defaults < config.json < gespeicherte Einstellungen
             cfg[sec] = {**d, **cfg.get(sec, {}), **self.saved.get(sec, {})}
-        self.sensors = {n: sensors.create(c) for n, c in cfg["sensors"].items()}
+        # prefix: z. B. "room_" für einen Raum-Sensor, der nur angezeigt wird und nicht regelt
+        self.sensors = {n: (c.get("prefix", ""), sensors.create(c)) for n, c in cfg["sensors"].items()}
+        self._warned = {}
         self.gpio, self.outs, self.hubs = outputs.create_all(cfg)
         self.has_dehum = any(o.role == "dehumidifier" for o in self.outs.values())
         for n, m in self.saved.get("modes", {}).items():
@@ -93,16 +95,21 @@ class Controller:
 
     # --- Messen ---
     def read_sensors(self):
-        merged = {}
-        for name, s in self.sensors.items():
+        merged, main = {}, False
+        for name, (prefix, s) in self.sensors.items():
             try:
                 for k, v in s.read().items():
                     if v is not None:
-                        merged[k] = round(float(v), 1)
+                        merged[prefix + k] = round(float(v), 1)
+                        main = main or (not prefix and k in ("temp", "hum"))
             except Exception as e:  # Sensorfehler dürfen die Regelung nicht beenden
-                log.warning("Sensor %s: %s", name, e)
+                now = time.monotonic()
+                if now - self._warned.get(name, -1e9) > 60:  # höchstens 1x pro Minute ins Log
+                    self._warned[name] = now
+                    log.warning("Sensor %s: %s", name, e)
         if merged:
             self.readings.update(merged)
+        if main:  # nur der Regel-Sensor zählt für "Sensordaten aktuell"
             self.last_ok = time.monotonic()
 
     def stale(self):
@@ -251,7 +258,7 @@ class Controller:
             self._append_csv(now, row)
 
     def _append_csv(self, now, row):
-        fields = ["t", "temp", "hum", "vpd"] + list(self.outs)
+        fields = ["t", "temp", "hum", "vpd", "room_temp", "room_hum"] + list(self.outs)
         path = self._p(f"log-{now:%Y-%m-%d}.csv")
         try:
             if os.path.exists(path):
@@ -294,7 +301,7 @@ class Controller:
         import io
         with self.lock:
             rows = self._rows(rng)
-        cols = ["t", "temp", "hum", "vpd"] + list(self.outs)
+        cols = ["t", "temp", "hum", "vpd", "room_temp", "room_hum"] + list(self.outs)
         buf = io.StringIO()
         w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
         w.writeheader()

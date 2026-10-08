@@ -1,7 +1,12 @@
 """Sensor-Treiber. Jeder Treiber liefert dict mit temp (°C) und/oder hum (%)."""
 import glob
+import logging
 import math
+import struct
+import threading
 import time
+
+log = logging.getLogger("grow.sensors")
 
 
 class SimSensor:
@@ -57,8 +62,94 @@ class DS18B20:
         return {"temp": int(lines[1].split("t=")[1]) / 1000.0}
 
 
-DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B20}
+def _packed(b):
+    """3 Byte big-endian: Temperatur*10000 + Feuchte*10, Bit 23 = negative Temperatur."""
+    v = int.from_bytes(b, "big")
+    neg, v = v & 0x800000, v & 0x7FFFFF
+    t = (v // 1000) / 10
+    return (-t if neg else t), (v % 1000) / 10
+
+
+def decode_govee(mid, d):
+    """Govee-BLE-Werbepaket (Herstellerdaten ohne die 2 Byte Hersteller-ID) -> {temp, hum, batt} oder None."""
+    cands = []
+    if mid == 0xEC88 and len(d) == 6:            # H5072, H5075, H5101, H5102, H5177 (ältere FW)
+        t, h = _packed(d[1:4]); cands.append((t, h, d[4] & 0x7F))
+    if mid == 0xEC88 and len(d) in (7, 9):       # H5074, H5051, H5052
+        t, h, b = struct.unpack("<hHB", d[1:6]); cands.append((t / 100, h / 100, b))
+    if mid == 0x0001 and len(d) >= 6:            # H5100, H5101, H5102, H5104, H5105, H5174, H5177 (neuere FW)
+        t, h = _packed(d[2:5]); cands.append((t, h, d[5] & 0x7F))
+    if mid == 0x8801 and len(d) >= 9:            # H5179
+        t, h, b = struct.unpack("<hHB", d[4:9]); cands.append((t / 100, h / 100, b))
+    for t, h, b in cands:
+        if -40 <= t <= 80 and 0 <= h <= 100:
+            return {"temp": round(t, 1), "hum": round(h, 1), "batt": min(b, 100)}
+    return None
+
+
+class _GoveeScanner:
+    """Ein gemeinsamer BLE-Scanner (bleak/BlueZ) für alle Govee-Sensoren, in eigenem Thread."""
+    _inst = None
+
+    @classmethod
+    def get(cls):
+        if cls._inst is None:
+            cls._inst = cls()
+        return cls._inst
+
+    def __init__(self):
+        self.latest, self.raw, self.error = {}, {}, None
+        threading.Thread(target=self._run, daemon=True, name="govee-ble").start()
+
+    def _run(self):
+        import asyncio
+        while True:
+            try:
+                asyncio.run(self._scan())
+            except Exception as e:  # z. B. Bluetooth aus, BlueZ neu gestartet
+                self.error = f"Bluetooth: {e!r}"
+                log.warning("Govee-Scanner: %r – neuer Versuch in 15 s", e)
+                time.sleep(15)
+
+    async def _scan(self):
+        import asyncio
+        from bleak import BleakScanner
+        # DuplicateData=True: auch unveränderte Pakete melden, sonst kämen bei konstanten Werten keine Updates
+        async with BleakScanner(detection_callback=self._cb, bluez={"filters": {"DuplicateData": True}}):
+            self.error = None
+            while True:
+                await asyncio.sleep(3600)
+
+    def _cb(self, dev, adv):
+        mac = dev.address.upper()
+        for mid, data in adv.manufacturer_data.items():
+            r = decode_govee(mid, bytes(data))
+            if r:
+                self.latest[mac] = {**r, "t": time.monotonic(), "rssi": adv.rssi}
+                return
+            self.raw[mac] = f"0x{mid:04X}:{bytes(data).hex()}"
+
+
+class Govee:
+    """Govee-Thermo-Hygrometer per Bluetooth. Liefert den zuletzt empfangenen Wert (max. `max_age_s` alt)."""
+
+    def __init__(self, mac, max_age_s=600, **_):
+        self.mac, self.max_age = mac.upper(), max_age_s
+        self.scan = _GoveeScanner.get()
+
+    def read(self):
+        r = self.scan.latest.get(self.mac)
+        if not r:
+            raw = self.scan.raw.get(self.mac)
+            raise RuntimeError(self.scan.error or (f"{self.mac}: unbekanntes Paketformat {raw}" if raw else f"{self.mac}: noch keine Daten empfangen"))
+        age = time.monotonic() - r["t"]
+        if age > self.max_age:
+            raise RuntimeError(f"{self.mac}: letzte Daten vor {age:.0f} s")
+        return {"temp": r["temp"], "hum": r["hum"], "batt": r["batt"]}
+
+
+DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B20, "govee": Govee}
 
 
 def create(cfg):
-    return DRIVERS[cfg["driver"]](**{k: v for k, v in cfg.items() if k != "driver"})
+    return DRIVERS[cfg["driver"]](**{k: v for k, v in cfg.items() if k not in ("driver", "prefix")})

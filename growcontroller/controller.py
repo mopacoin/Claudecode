@@ -80,10 +80,29 @@ class Controller:
             try:
                 with open(path, newline="") as f:
                     for r in csv.DictReader(f):
-                        if datetime.fromisoformat(r["t"]) >= cutoff:
-                            self.minutes.append({k: (r["t"] if k == "t" else float(v)) for k, v in r.items() if v not in ("", None)})
-            except (OSError, ValueError, KeyError):
-                log.warning("Verlauf %s nicht lesbar", path)
+                        row = self._parse_row(r)
+                        if row and datetime.fromisoformat(row["t"]) >= cutoff:
+                            self.minutes.append(row)
+            except (OSError, ValueError, KeyError, csv.Error) as e:  # Verlauf darf den Start nie verhindern
+                log.warning("Verlauf %s nicht lesbar: %s", path, e)
+        self.minutes = deque(sorted(self.minutes, key=lambda r: r["t"]), maxlen=self.minutes.maxlen)
+
+    @staticmethod
+    def _parse_row(r):
+        """CSV-Zeile -> dict; überzählige/fehlerhafte Felder werden ignoriert, kaputte Zeilen übersprungen."""
+        try:
+            datetime.fromisoformat(r.get("t") or "")
+        except (TypeError, ValueError):
+            return None
+        row = {"t": r["t"]}
+        for k, v in r.items():
+            if k in (None, "t") or not isinstance(v, str) or v == "":
+                continue
+            try:
+                row[k] = float(v)
+            except ValueError:
+                pass
+        return row
 
     def event(self, kind, msg):
         e = {"t": datetime.now().isoformat(timespec="seconds"), "kind": kind, "msg": msg}
@@ -275,12 +294,15 @@ class Controller:
 
     def _append_csv(self, now, row):
         fields = ["t", "temp", "hum", "vpd", "room_temp", "room_hum"] + list(self.outs)
-        path = self._p(f"log-{now:%Y-%m-%d}.csv")
         try:
-            if os.path.exists(path):
+            # Ändert sich die Spaltenliste (Geräte/Sensoren), in eine neue Datei mit passender Kopfzeile schreiben
+            for suffix in [""] + [f"-{c}" for c in "bcdefghijklmnopqrstuvwxyz"]:
+                path = self._p(f"log-{now:%Y-%m-%d}{suffix}.csv")
+                if not os.path.exists(path):
+                    break
                 with open(path) as f:
-                    if f.readline().strip().split(",") != fields:
-                        path = self._p(f"log-{now:%Y-%m-%d}-b.csv")  # Geräteliste hat sich geändert
+                    if f.readline().strip().split(",") == fields:
+                        break
             new = not os.path.exists(path)
             with open(path, "a", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")

@@ -1,3 +1,4 @@
+import csv
 import tempfile
 import time
 import unittest
@@ -222,3 +223,20 @@ class TestRoomAwareExhaust(unittest.TestCase):
     def test_disabled(self):
         w, notes = rules.exhaust_plan({**self.EX, "room_aware": False}, True, 28, 50, 25, 60, room_t=29, room_h=40)
         self.assertEqual(notes, []); self.assertEqual(w, self.EX["max_w"])
+
+
+class TestHistoryFiles(unittest.TestCase):
+    def test_broken_csv_and_header_changes(self):
+        with tempfile.TemporaryDirectory() as d:
+            day = datetime.now().strftime("%Y-%m-%d"); now = datetime.now().isoformat(timespec="seconds")
+            with open(f"{d}/log-{day}-b.csv", "w") as f:  # Zustand vom Pi: Zeile mit mehr Spalten als die Kopfzeile
+                f.write(f"t,temp,hum\n{now},24.0,60.0\n{now},24.1,60.1,0.9,1,0,7\nkaputt,x\n")
+            c = make(d)  # darf nicht abstürzen
+            self.assertEqual(len(c.minutes), 2); self.assertEqual(c.minutes[1]["temp"], 24.1)
+            c._append_csv(datetime.now(), {"t": now, "temp": 25.0})
+            import glob, os
+            for p in glob.glob(f"{d}/log-{day}*.csv"):
+                rows = list(csv.reader(open(p)))
+                if os.path.basename(p) != f"log-{day}-b.csv":
+                    self.assertTrue(all(len(r) == len(rows[0]) for r in rows), p)
+            c.shutdown()

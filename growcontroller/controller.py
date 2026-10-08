@@ -21,6 +21,10 @@ SAMPLES = 4           # dann Mittelwert aus so vielen echten Abfragen der Steckd
 SWEEP_STEP = 15       # Schrittweite der automatischen Kalibrierung
 SWEEP_MAX_S = 60      # bleiben die Messwerte länger aus, wird die Messfahrt abgebrochen
 MAX_POINTS = 600
+EFF_BIN = 5           # Watt je Wirksamkeits-Fach
+EFF_WIN = 10          # so viele Minuten muss alles ruhig sein, bevor ein Wirksamkeits-Punkt zählt
+EFF_LIGHT_MIN = 30    # nach Licht an/aus so lange warten (Lampenwärme/Verdunstung schwingen erst ein)
+EFF_DEVICES = {"dehumidifier": "Entfeuchter", "humidifier": "Befeuchter", "heater": "Heizung"}
 ALARM_TEXT = {
     "temp_high": "Temperatur zu hoch", "temp_low": "Temperatur zu niedrig",
     "hum_high": "Luftfeuchte zu hoch", "hum_low": "Luftfeuchte zu niedrig",
@@ -56,6 +60,11 @@ class Controller:
         self.cal = settings.validate_cal(self.saved.get("servo_cal"))[0] or settings.DEFAULT_CAL
         self.learn = {k: v for k, v in self.saved.get("servo_learn", {}).items() if isinstance(v, list) and len(v) == 3}
         self.sweep = None
+        eff = self.saved.get("effect", {}).get("exhaust", {})
+        self.effect = {p: {k: v for k, v in eff.get(p, {}).items() if isinstance(v, list) and len(v) == 4}
+                       for p in ("day", "night")}
+        self._eff = {"min": None, "phase": None, "phase_t": time.monotonic(), "win": deque(maxlen=EFF_WIN), "why": "startet"}
+        self.exhaust_ff = {}
         self._lrn = {"angle": None, "since": 0.0, "last": 0.0, "saved": time.monotonic()}
         self.fresh = {}  # Messwerte genau dieses Regeltakts (ohne veraltete)
         self.readings = {}
@@ -215,8 +224,10 @@ class Controller:
                 p = "day" if day else "night"
                 cl = self.effective_climate(day)
                 r = self.readings
+                self.exhaust_ff = self._effect_ff(day, cl[f"temp_{p}"], cl[f"hum_{p}"])
                 ex_w, notes = rules.exhaust_plan(self.cfg["exhaust"], day, r.get("temp"), r.get("hum"), cl[f"temp_{p}"], cl[f"hum_{p}"],
-                                                 r.get("room_temp"), r.get("room_hum"), active, dehum_min)
+                                                 r.get("room_temp"), r.get("room_hum"), active, dehum_min,
+                                                 {k: v["w"] for k, v in self.exhaust_ff.items() if v["w"] is not None})
             self._exhaust_notes(notes)
             ex = self.cfg["exhaust"]
             if ex["enabled"] and ex.get("intake_pct", 0) and any(o.proportional for o in self.outs.values()):
@@ -237,6 +248,7 @@ class Controller:
                     self._prev_state[n] = o.state
                     if not o.proportional:  # stufenlose Abluft wechselt laufend – nicht als EIN/AUS protokollieren
                         self.event("output", f"{n}: {'EIN' if o.state else 'AUS'}")
+            self._effect_step(now, day, active)
             self._check_alarms()
             self._record(now)
             self._advance(now)
@@ -321,6 +333,112 @@ class Controller:
         self.saved["servo_learn"] = self.learn
         settings.save(self._p("settings.json"), self.saved)
         self._lrn["saved"] = time.monotonic()
+
+    # --- Wirksamkeit der Abluft lernen: Abstand Zelt–Raum je Leistung (Tag/Nacht getrennt) ---
+    def _effect_ff(self, day, t_target, h_target):
+        """Gelernte Vorsteuerung: welche Leistung hält das Ziel bei der aktuellen Raumluft? {temp|hum: {w, need}}"""
+        ex, r = self.cfg["exhaust"], self.readings
+        rt, rh, t = r.get("room_temp"), r.get("room_hum"), r.get("temp")
+        if not ex.get("use_effect", True) or rt is None or rh is None:
+            return {}
+        bins, top = self.effect["day" if day else "night"], ex["max_w"] if day else ex["max_w_night"]
+        need = {"temp": t_target - rt}
+        if t is not None:
+            need["hum"] = rules.abs_hum(t, h_target) - rules.abs_hum(rt, rh)
+        out = {}
+        for k, idx in (("temp", 1), ("hum", 2)):
+            if k in need:
+                curve = rules.effect_curve(bins, idx)
+                w = rules.watts_for_effect(curve, need[k], ex["min_w"])
+                if w is not None:
+                    out[k] = {"w": w, "need": round(need[k], 2)}
+                elif curve and curve[-1][0] >= top - 5 and need[k] < curve[-1][1]:  # nur zur Anzeige
+                    out[k] = {"w": None, "need": round(need[k], 2), "unreachable": True}
+        return out
+
+    def _effect_why(self, o, active, mono):
+        """Grund, warum gerade nicht gelernt wird (oder None)."""
+        ex, r = self.cfg["exhaust"], self.readings
+        if not ex.get("learn_effect", True):
+            return "Lernen ausgeschaltet"
+        if not ex["enabled"]:
+            return "stufenlose Regelung aus"
+        if self.sweep or o.mode != "auto":
+            return "Abluft nicht auf Automatik"
+        if self.stale() or r.get("temp") is None or r.get("hum") is None:
+            return "keine aktuellen Zelt-Messwerte"
+        if r.get("room_temp") is None or r.get("room_hum") is None:
+            return "kein Raum-Sensor (prefix \"room_\")"
+        if r.get("exhaust_w") is not None and r["exhaust_w"] < MIN_W:
+            return "Abluft-Steckdose aus"
+        busy = [EFF_DEVICES[d] for d in EFF_DEVICES if d in active]
+        if busy:
+            return f"{', '.join(busy)} läuft – verfälscht die Messung"
+        if mono - self._eff["phase_t"] < EFF_LIGHT_MIN * 60:
+            return f"wartet {EFF_LIGHT_MIN} min nach Start bzw. Licht an/aus"
+        return None
+
+    def _effect_step(self, now, day, active):
+        o = next((x for x in self.outs.values() if x.proportional), None)
+        E, mono = self._eff, time.monotonic()
+        if not o or E["min"] == (now.hour, now.minute):
+            return
+        E["min"] = (now.hour, now.minute)  # 1 Wert pro Minute
+        if E["phase"] != day:
+            if E["phase"] is not None:
+                E["phase_t"] = mono
+            E["phase"] = day
+            E["win"].clear()
+        why = self._effect_why(o, active, mono)
+        if why:
+            E["win"].clear()
+            E["why"] = why
+            return
+        r = self.readings
+        w = r.get("exhaust_w", o.watts)
+        if w is None:
+            E["why"] = "noch keine Leistung bekannt"
+            return
+        dah = rules.abs_hum(r["temp"], r["hum"]) - rules.abs_hum(r["room_temp"], r["room_hum"])
+        E["win"].append((w, r["temp"] - r["room_temp"], dah))
+        win = list(E["win"])
+        if len(win) < EFF_WIN:
+            E["why"] = f"sammelt ruhige Minuten ({len(win)}/{EFF_WIN})"
+            return
+        spread = [max(c) - min(c) for c in zip(*win)]
+        if spread[0] > 4:
+            E["why"] = f"Leistung schwankt ({spread[0]:.0f} W)"
+            return
+        if spread[1] > 0.4 or spread[2] > 0.6:
+            E["why"] = "Klima noch nicht eingeschwungen"
+            return
+        mw, dt, da = (sum(c) / len(c) for c in zip(*win))
+        self._effect_add("day" if day else "night", mw, dt, da)
+        E["win"].clear()  # nächster Punkt aus neuen Minuten
+        E["why"] = f"Lernpunkt: {mw:.0f} W → Zelt {dt:+.1f} °C / {da:+.1f} g/m³ ggü. Raum"
+
+    def _effect_add(self, phase, w, dt, da):
+        bins = self.effect[phase]
+        key = str(int(round(w / EFF_BIN) * EFF_BIN))
+        w0, t0, a0, n = bins.get(key, [w, dt, da, 0])
+        k = 1 / (min(n, 30) + 1)  # gleitender Mittelwert – folgt langsam Pflanzengröße und Jahreszeit
+        bins[key] = [round(w0 + (w - w0) * k, 1), round(t0 + (dt - t0) * k, 2), round(a0 + (da - a0) * k, 2), n + 1]
+        self.saved["effect"] = {"exhaust": self.effect}
+        settings.save(self._p("settings.json"), self.saved)
+
+    def reset_effect(self):
+        with self.lock:
+            self.effect = {"day": {}, "night": {}}
+            self._eff["win"].clear()
+            self.saved["effect"] = {"exhaust": self.effect}
+            settings.save(self._p("settings.json"), self.saved)
+            self.rev += 1
+            self.event("settings", "Abluft-Wirksamkeit zurückgesetzt")
+
+    def _effect_status(self):
+        out = {p: {"bins": sorted(b.values()), "temp": rules.effect_curve(b, 1), "hum": rules.effect_curve(b, 2)}
+               for p, b in self.effect.items()}
+        return {**out, "ff": self.exhaust_ff, "why": self._eff["why"], "progress": len(self._eff["win"]), "need": EFF_WIN}
 
     def start_sweep(self):
         o = next((x for x in self.outs.values() if x.proportional), None)
@@ -572,7 +690,8 @@ class Controller:
                             "learned": sum(1 for v in self.learn.values() if v[2] >= 3),
                             "sweep": {"i": self.sweep["i"], "n": len(self.sweep["angles"]),
                                       "angle": self.sweep["angles"][self.sweep["i"]],
-                                      "vals": [round(v, 1) for v in self._lrn.get("vals", [])]} if self.sweep else None},
+                                      "vals": [round(v, 1) for v in self._lrn.get("vals", [])]} if self.sweep else None,
+                            "effect": self._effect_status()},
                 "stats": self.stats(), "alarms": [{"id": k, **v} for k, v in self.alarms.items()],
                 "grow": {**self._grow_status(g, gday), "starts_in": starts_in},
                 "irrigation": {"last": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),

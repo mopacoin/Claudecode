@@ -106,6 +106,9 @@ def make_handler(ctl, token):
                     return self._send(200, ctl.status())
                 except ValueError:
                     return self._send(400, {"error": "Winkel 0…180 und stufenloser Servo erforderlich"})
+            if parts == ["api", "effect", "reset"]:
+                ctl.reset_effect()
+                return self._send(200, ctl.status())
             if parts == ["api", "irrigation", "run"]:
                 try:
                     ctl.water_now()

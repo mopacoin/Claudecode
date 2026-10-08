@@ -28,6 +28,12 @@ Läuft im Controller selbst (keine externen Bibliotheken, funktioniert offline),
   **Zuluft:** läuft mit, sobald die Abluft mindestens `intake_pct` (40 %) ihrer Leistung erreicht (Unterdruck bleibt erhalten).
   **Gerätekopplung (Interlock):** Läuft der Entfeuchter, entfeuchtet die Abluft nicht mit (Stufe 2: hilft erst, wenn er nach
   20 min nicht hinterherkommt); Befeuchter/Heizung an → Abluft auf Grundlast; Temperatur hat Vorrang; sanfte Rampe (15 W/min). Gerät „Ein“ = Maximum, „Aus“ = Grundlast.
+  **Gelernte Wirksamkeit (Klima → Abluft-Wirksamkeit):** Mit Raum-Sensor lernt der Controller je Leistungsstufe (5 W), wie viel
+  wärmer (°C) und feuchter (g/m³ absolut) das Zelt gegenüber dem Raum bleibt – getrennt für Tag und Nacht, nur in ruhigen
+  Phasen (10 min gleiche Leistung und stabiles Klima, kein Entfeuchter/Befeuchter/Heizung an, ≥ 30 min nach Licht an/aus).
+  Daraus ergibt sich die Leistung, die das Ziel bei der aktuellen Raumluft hält (**Vorsteuerung**); die Abluft regelt um diesen
+  Wert herum statt immer ab Grundlast – ohne bleibende Abweichung. Ist das Ziel laut Lernkurve nicht erreichbar oder zu wenig
+  gelernt, bleibt es beim bisherigen Regler. Abschaltbar (`learn_effect`, `use_effect`), Lernstand in `data/settings.json`.
 - **Licht:** Zeitplan inkl. Schnellwahl 18/6, 20/4, 16/8, 12/12 · **Bewässerung:** Intervall, Dauer, Zeitfenster
 - **Alarme:** Grenzwerte mit Verzögerung; Sensor-/Geräteausfall; aktive Alarme im Kopf der Seite
 - **Zyklen:** Wachstumsphasen mit Tageszähler und Fortschrittsbalken. Zu den eingebauten Richtwerten (Keimling, Wachstum, Blüte,

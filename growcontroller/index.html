@@ -127,6 +127,7 @@ dialog::backdrop{background:rgba(0,0,0,.62);backdrop-filter:blur(5px)}
 /* Abluft-Kalibrierung */
 .lvl{height:6px;border-radius:3px;background:var(--card2);margin:10px 0 2px;overflow:hidden}.lvl i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .5s}
 .calgrid{display:grid;gap:22px;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)}@media(max-width:800px){.calgrid{grid-template-columns:1fr}}
+.effgrid{display:grid;gap:22px;grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:800px){.effgrid{grid-template-columns:1fr}}
 .calsvg{width:100%;height:auto}.calsvg text{font-size:10px;fill:var(--mute)}
 input[type=range]{width:100%;accent-color:var(--acc)}
 .pts td{padding:6px 8px}.pts button{background:none;border:0;color:var(--bad);cursor:pointer;font-size:15px}
@@ -195,7 +196,7 @@ tr+tr td{border-top:1px solid var(--line)}
         <div class="card mt" id="irrCard"></div>
       </section>
 
-      <section class="tab" id="tab-climate"><div id="f-climate" class="card"></div><div id="f-exhaust" class="card mt"></div></section>
+      <section class="tab" id="tab-climate"><div id="f-climate" class="card"></div><div id="f-exhaust" class="card mt"></div><div id="effCard" class="card mt" style="display:none"></div></section>
       <section class="tab" id="tab-light"><div id="f-light" class="card"></div></section>
       <section class="tab" id="tab-irrigation"><div id="f-irrigation" class="card"></div></section>
       <section class="tab" id="tab-alarms">
@@ -291,7 +292,9 @@ const FORMS = {
     {k: 'temp_priority', l: 'Temperatur hat Vorrang (zu heiß → Abluft darf trotzdem hoch)', t: 'bool'},
     {k: 'ramp_w_min', l: 'Sanfte Rampe: max. Änderung (0 = aus)', u: 'W/min', step: 1},
     {k: 'auto_learn', l: 'Kennlinie im Betrieb automatisch nachlernen (braucht Leistungsmessung)', t: 'bool'},
-    {k: 'intake_pct', l: 'Zuluft an ab Abluft-Leistung (0 = Zuluft folgt Lüfterbedarf)', u: '%', step: 5}],
+    {k: 'intake_pct', l: 'Zuluft an ab Abluft-Leistung (0 = Zuluft folgt Lüfterbedarf)', u: '%', step: 5},
+    {k: 'learn_effect', l: 'Wirksamkeit der Abluft lernen (braucht Raum-Sensor)', t: 'bool'},
+    {k: 'use_effect', l: 'Gelernte Wirksamkeit zur Vorsteuerung nutzen', t: 'bool'}],
    hint: 'Die Abluft läuft immer mit Grundlast und steigt gleitend bis zum Maximum, je weiter Temperatur oder Feuchte über dem Soll liegen. Die Watt werden über die Kennlinie (Geräte → Abluft kalibrieren) in den Servo-Winkel umgerechnet. Ohne stufenlose Regelung läuft sie nur zwischen Grundlast und Maximum. Mit „Raumklima berücksichtigen“ dreht sie nicht sinnlos hoch, wenn die Raumluft selbst zu warm oder zu feucht ist (braucht einen Raum-Sensor). Die Gerätekopplung verhindert, dass Abluft und Entfeuchter, Befeuchter oder Heizung gegeneinander arbeiten – wie der Interlock bei Profi-Controllern. Sie greift für Geräte, die dieser Controller schaltet.'},
   grow: {title: 'Zyklus wechseln', fields: [
     {k: 'stage', l: 'Aktiver Zyklus', t: 'select', dyn: true},
@@ -590,6 +593,44 @@ function renderCal() {
   $('#swStop')?.addEventListener('click', async () => { try { S = await api('/api/calibration/sweep', {action: 'stop'}); renderAll(); } catch (e) { toast(e.message, 1); } });
 }
 
+// ---- Abluft-Wirksamkeit (gelernt: Abstand Zelt–Raum je Leistung) ----
+function effChart(ph, lo, hi) {
+  const t = ph.temp, h = ph.hum, bins = ph.bins;
+  if (!bins.length) return `<div class="sub" style="padding:30px 0;text-align:center">Noch keine Lernpunkte</div>`;
+  const ws = bins.map(b => b[0]), x0 = Math.min(lo, ...ws), x1 = Math.max(hi, ...ws);
+  const tm = Math.max(1, ...bins.map(b => b[1])) * 1.15, hm = Math.max(1, ...bins.map(b => b[2])) * 1.15;
+  const tn = Math.min(0, ...bins.map(b => b[1])), hn = Math.min(0, ...bins.map(b => b[2]));
+  const X = w => 34 + (w - x0) / (x1 - x0 || 1) * 232, YT = v => 150 - (v - tn) / (tm - tn) * 136, YH = v => 150 - (v - hn) / (hm - hn) * 136;
+  const grid = [0, .5, 1].map(f => `<line x1="34" x2="266" y1="${14 + f * 136}" y2="${14 + f * 136}" stroke="currentColor" opacity=".08"/>
+    <text x="28" y="${17 + f * 136}" text-anchor="end" style="fill:var(--temp)">${(tm - f * (tm - tn)).toFixed(1)}</text>
+    <text x="272" y="${17 + f * 136}" style="fill:var(--hum)">${(hm - f * (hm - hn)).toFixed(1)}</text>`).join('');
+  const xl = [x0, (x0 + x1) / 2, x1].map(w => `<text x="${X(w)}" y="166" text-anchor="middle">${Math.round(w)} W</text>`).join('');
+  const line = (c, Y, col) => c.length > 1 ? `<polyline points="${c.map(p => `${X(p[0])},${Y(p[1])}`).join(' ')}" fill="none" stroke="var(${col})" stroke-width="2.5" stroke-linejoin="round"/>` : '';
+  const dots = bins.map(b => `<circle cx="${X(b[0])}" cy="${YT(b[1])}" r="${b[3] >= 2 ? 4 : 2.5}" fill="var(--temp)" opacity="${b[3] >= 2 ? 1 : .45}"><title>${b[0]} W: ${b[1]} °C · ${b[2]} g/m³ (${b[3]}×)</title></circle>
+    <circle cx="${X(b[0])}" cy="${YH(b[2])}" r="${b[3] >= 2 ? 4 : 2.5}" fill="var(--hum)" opacity="${b[3] >= 2 ? 1 : .45}"><title>${b[0]} W: ${b[1]} °C · ${b[2]} g/m³ (${b[3]}×)</title></circle>`).join('');
+  return `<svg class="calsvg" viewBox="0 0 300 172" style="color:var(--text)">${grid}${xl}${line(t, YT, '--temp')}${line(h, YH, '--hum')}${dots}</svg>`;
+}
+function renderEffect() {
+  const card = $('#effCard'), e = S.exhaust?.effect;
+  card.style.display = e && servoName() ? '' : 'none'; if (card.style.display) return;
+  const v = CFG.values.exhaust, r = S.readings, t = S.targets, ff = e.ff || {};
+  const phase = (k, l, top) => { const ph = e[k], n = ph.bins.filter(b => b[3] >= 2).length;
+    return `<div><div class="row"><b class="sp">${l}</b><span class="sub">${n} Leistungsstufe${n === 1 ? '' : 'n'} gelernt</span></div>${effChart(ph, v.min_w, top)}</div>`; };
+  const ffl = (k, u, goal) => !ff[k] ? null : ff[k].unreachable ? `${goal} laut Lernkurve auch mit voller Leistung nicht zu halten – regelt ohne Vorsteuerung`
+    : `<b style="color:var(--text)">≈ ${Math.round(ff[k].w)} W</b> halten ${goal} (Zelt ${ff[k].need >= 0 ? '+' : ''}${ff[k].need.toFixed(1)} ${u} ggü. Raum)`;
+  const parts = [ffl('temp', '°C', `${t.temp} °C`), ffl('hum', 'g/m³', `${t.hum} %`)].filter(Boolean);
+  const learning = !v.learn_effect ? 'aus' : e.why;
+  card.innerHTML = `<div class="row"><h3 class="sp" style="margin:0">${ico('out')} Abluft-Wirksamkeit (gelernt)</h3><button class="sec danger" id="effReset">Zurücksetzen</button></div>
+    <p class="hint" style="margin-top:10px">Der Controller lernt, wie viel wärmer (<b style="color:var(--temp)">°C</b>) und feuchter (<b style="color:var(--hum)">g/m³</b>) das Zelt bei jeder Abluft-Leistung gegenüber dem Raum bleibt – getrennt für Tag und Nacht. Gelernt wird nur in ruhigen Phasen: ${e.need} min gleichbleibende Leistung und stabiles Klima, kein Entfeuchter, Befeuchter oder Heizung aktiv, frühestens 30 min nach Licht an/aus. Daraus folgt die Leistung, die das Ziel hält (Vorsteuerung): Die Abluft regelt dann um diesen Wert herum statt immer ab Grundlast – ohne bleibende Abweichung.</p>
+    <div class="sub">Lernstatus: <b style="color:var(--text)">${esc(learning)}</b></div>
+    ${v.learn_effect && e.progress ? `<div class="lvl"><i style="width:${e.progress / e.need * 100}%"></i></div>` : ''}
+    <div class="sub" style="margin:8px 0 14px">Vorsteuerung ${!v.use_effect ? '<b>aus</b>' : r.room_temp == null ? '– braucht Raum-Sensor' : parts.length ? 'jetzt: ' + parts.join(' · ') : '– noch zu wenig gelernt (mind. 2 Leistungsstufen, 10 W auseinander, je 2 Messungen)'}</div>
+    <div class="effgrid">${phase('day', 'Tag (Licht an)', v.max_w)}${phase('night', 'Nacht', v.max_w_night)}</div>
+    <div class="sub" style="margin-top:8px"><b style="color:var(--temp)">●</b> Zelt wärmer als Raum (°C, linke Achse) · <b style="color:var(--hum)">●</b> Zelt feuchter als Raum (g/m³, rechte Achse) · blasse Punkte: erst 1 Messung</div>`;
+  $('#effReset').onclick = async () => { if (!confirm('Gelernte Abluft-Wirksamkeit löschen und neu lernen?')) return;
+    try { S = await api('/api/effect/reset', {}); renderAll(); toast('Wirksamkeit zurückgesetzt'); } catch (er) { toast(er.data?.error || er.message, 1); } };
+}
+
 // ---- Einstellungsformulare ----
 function fieldHTML(sec, f, v, ns) {
   const sp = CFG.spec[sec][f.k], t = f.t || 'num', nm = ns ? `${sec}.${f.k}` : f.k, id = `${sec}_${f.k}${ns ? '_d' : ''}`;
@@ -744,7 +785,7 @@ $('#tokBtn').onclick = () => { const t = prompt('Neues Token (leer = löschen):'
 // ---- Hauptschleife ----
 let built = false;
 function renderAll(rebuild) {
-  renderHeader(); renderOverview(); renderDevices(); renderAlarms(); renderSystem(); renderPresets();
+  renderHeader(); renderOverview(); renderDevices(); renderAlarms(); renderSystem(); renderPresets(); renderEffect();
   if (!built || rebuild) { Object.keys(FORMS).forEach(buildForm); built = true; }
 }
 async function poll() {

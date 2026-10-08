@@ -134,51 +134,69 @@ def rh_at(t, ah):
     return ah * (273.15 + t) / (6.112 * math.exp(17.67 * t / (t + 243.5)) * 2.1674)
 
 
-def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None, active=(), dehum_min=0):
+def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None, active=(), dehum_min=0, ff=None):
     """Abluft-Leistung in W + Hinweise, was per Abluft nicht erreichbar ist.
 
     Abluft zieht Raumluft nach: Das Zelt kann nicht kühler als der Raum (+ Abstand) und nicht
-    trockener als Raumluft auf Zelttemperatur werden. Geregelt wird nur auf den erreichbaren Teil."""
+    trockener als Raumluft auf Zelttemperatur werden. Geregelt wird nur auf den erreichbaren Teil.
+
+    ff: gelernte Vorsteuerung {"temp": W, "hum": W} – die Leistung, die das Ziel erfahrungsgemäß hält. Dann regelt der
+    P-Anteil um diesen Wert herum (auch nach unten), statt immer bei der Grundlast zu beginnen: keine bleibende
+    Abweichung mehr. Ohne gelernte Werte (None) bleibt es beim reinen P-Regler ab Grundlast."""
     lo, hi = cfg["min_w"], cfg["max_w"] if day else cfg["max_w_night"]
     if temp is None and hum is None:
         return hi, []  # ohne Messwerte lieber lüften
-    notes, t_goal, h_goal = [], t_target, h_target
+    notes, t_goal, h_goal, ff = [], t_target, h_target, dict(ff or {})
     if cfg.get("room_aware", True) and room_t is not None:
         floor_t = room_t + cfg.get("room_margin", 0.5)
         if temp is not None and temp > t_target and floor_t > t_target:
             t_goal = floor_t
+            ff.pop("temp", None)  # Raumluft begrenzt: nicht auf ein unerreichbares Ziel vorsteuern
             notes.append({"key": "temp", "floor": round(floor_t, 1), "room": room_t, "useless": floor_t >= temp})
         if room_h is not None and temp is not None and hum is not None:
             floor_h = rh_at(temp, abs_hum(room_t, room_h)) + 2
             if hum > h_target and floor_h > h_target:
                 h_goal = floor_h
+                ff.pop("hum", None)
                 notes.append({"key": "hum", "floor": round(min(floor_h, 100), 1), "room": room_h, "useless": floor_h >= hum})
-    ft = _clamp((temp - t_goal) / cfg["temp_band"]) if temp is not None else 0
-    fh = _clamp((hum - h_goal) / cfg["hum_band"]) if hum is not None else 0
+    ft = (temp - t_goal) / cfg["temp_band"] if temp is not None else 0
+    fh = (hum - h_goal) / cfg["hum_band"] if hum is not None else 0
     # Gerätekopplung (Interlock): Abluft arbeitet nicht gegen Entfeuchter, Befeuchter oder Heizung.
     keep_t = cfg.get("temp_priority", True)  # zu heiß -> Abluft darf trotzdem hoch
     if "dehumidifier" in active and cfg.get("interlock_dehum", True):
         assist = cfg.get("dehum_assist_min", 20)
         # Stufe 2: Entfeuchter kommt nach `assist` Minuten nicht hinterher -> Abluft hilft beim Rest über Soll + Band
         if assist and dehum_min >= assist and hum is not None and hum > h_goal + cfg["hum_band"]:
-            fh = _clamp((hum - h_goal - cfg["hum_band"]) / cfg["hum_band"])
+            fh = (hum - h_goal - cfg["hum_band"]) / cfg["hum_band"]
             notes.append({"key": "interlock", "dev": "dehumidifier", "assist": True})
         else:
             fh = 0
             notes.append({"key": "interlock", "dev": "dehumidifier", "assist": False})
+        ff.pop("hum", None)  # Entfeuchter übernimmt die Feuchte
         if not keep_t:
             ft = 0
+            ff.pop("temp", None)
     for dev, opt in (("humidifier", "interlock_hum"), ("heater", "interlock_heat")):
         if dev in active and cfg.get(opt, True):
             fh = 0
+            ff.pop("hum", None)
             if not keep_t or dev == "heater":  # Heizung läuft = es ist zu kalt, Temperaturbedarf entfällt ohnehin
                 ft = 0
+                ff.pop("temp", None)
             notes.append({"key": "interlock", "dev": dev, "assist": False})
-    return round(lo + (max(hi, lo) - lo) * max(ft, fh), 1), notes
+    span = max(hi, lo) - lo
+
+    def part(f, base):
+        if base is None:  # nichts gelernt: P-Regler ab Grundlast, nur nach oben
+            return lo + span * _clamp(f)
+        return base + span * max(-1.0, min(1.0, f))  # um die gelernte Leistung herum
+
+    w = max(part(ft, ff.get("temp")), part(fh, ff.get("hum")))
+    return round(max(lo, min(max(hi, lo), w)), 1), notes
 
 
-def exhaust_watts(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None, active=(), dehum_min=0):
-    return exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t, room_h, active, dehum_min)[0]
+def exhaust_watts(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None, active=(), dehum_min=0, ff=None):
+    return exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t, room_h, active, dehum_min, ff)[0]
 
 
 def ramp(prev, target, max_step):
@@ -215,3 +233,45 @@ def learned_curve(bins, manual, min_n=3, near=8):
         s, m = merged.get(a, (0, 0))
         merged[a] = (s + w * n, m + n)
     return isotonic([(a, s / m, m) for a, (s, m) in sorted(merged.items())])
+
+
+
+# --- Wirksamkeit der Abluft: wie stark senkt mehr Leistung den Abstand Zelt–Raum? ---
+# Eingeschwungen gilt grob: Zelt − Raum ≈ Wärme- bzw. Feuchtelast / Luftmenge. Je Leistungsfach wird der Abstand
+# für Temperatur (°C) und absolute Feuchte (g/m³) gemittelt; mehr Leistung darf den Abstand nie vergrößern.
+
+def effect_curve(bins, idx, min_n=2):
+    """bins {key: [watt, dT, dAH, n]} -> [[watt, abstand]] nach Watt sortiert, Abstand nicht steigend (idx 1 = °C, 2 = g/m³)."""
+    pts = sorted((b[0], b[idx], min(b[3], 30)) for b in bins.values() if b[3] >= min_n)
+    if len(pts) < 2:
+        return []
+    neg = isotonic([(w, -d, n) for w, d, n in pts])
+    return [[w, round(-d, 2)] for w, d in neg]
+
+
+def effect_at(curve, w):
+    """Erwarteter Abstand Zelt–Raum bei Leistung w (linear, an den Rändern gehalten)."""
+    if not curve:
+        return None
+    if w <= curve[0][0]:
+        return curve[0][1]
+    for (w0, d0), (w1, d1) in zip(curve, curve[1:]):
+        if w <= w1:
+            return d0 + (d1 - d0) * (w - w0) / (w1 - w0) if w1 > w0 else d1
+    return curve[-1][1]
+
+
+def watts_for_effect(curve, need, lo, near=5, min_span=10):
+    """Leistung, bei der der Abstand Zelt–Raum auf `need` sinkt – oder None, wenn das außerhalb des Gelernten liegt.
+    Reicht selbst die größte gelernte Leistung nicht, ebenfalls None: dann regelt der P-Anteil allein, statt dauerhaft
+    auf Maximum vorzusteuern (sonst liefe die Abluft auch dann laut, wenn das Zelt schon unter dem Ziel ist)."""
+    if len(curve) < 2 or curve[-1][0] - curve[0][0] < min_span or need is None:
+        return None
+    if need >= curve[0][1]:  # schon die kleinste gelernte Leistung reicht
+        return lo if curve[0][0] <= lo + near else None
+    if need < curve[-1][1]:
+        return None
+    for (w0, d0), (w1, d1) in zip(curve, curve[1:]):
+        if d1 <= need <= d0:
+            return round(w0 if d0 == d1 else w0 + (w1 - w0) * (d0 - need) / (d0 - d1), 1)
+    return None

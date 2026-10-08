@@ -23,8 +23,8 @@ Läuft im Controller selbst (keine externen Bibliotheken, funktioniert offline),
   Startwerte: 0° = 20 W, 90° = 25 W, 180° = 85 W. Mit Raum-Sensor regelt sie nur auf das per Raumluft Erreichbare
   (Zelt ≥ Raumtemperatur + Abstand; Feuchte über absolute Feuchte) und zeigt einen Hinweis, wenn das Ziel so nicht erreichbar ist.
   **Automatische Kennlinie:** Mit Leistungsmessung an der Abluft-Steckdose (Sensor `meross_power` mit `"prefix": "exhaust_"`)
-  fährt „Automatisch kalibrieren“ 0–180° in 15°-Schritten ab (je 20 s einschwingen, Median aus 3 Messungen); im Betrieb lernt
-  die Kennlinie bei stillstehendem Servo weiter (geglättet, monoton steigend erzwungen).
+  fährt „Automatisch kalibrieren“ 0–180° in 15°-Schritten ab (je 8 s einschwingen, Mittelwert aus 4 Messungen); im Betrieb lernt
+  die Kennlinie nach demselben Prinzip weiter (geglättet, monoton steigend erzwungen).
   **Gerätekopplung (Interlock):** Läuft der Entfeuchter, entfeuchtet die Abluft nicht mit (Stufe 2: hilft erst, wenn er nach
   20 min nicht hinterherkommt); Befeuchter/Heizung an → Abluft auf Grundlast; Temperatur hat Vorrang; sanfte Rampe (15 W/min). Gerät „Ein“ = Maximum, „Aus“ = Grundlast.
 - **Licht:** Zeitplan inkl. Schnellwahl 18/6, 20/4, 16/8, 12/12 · **Bewässerung:** Intervall, Dauer, Zeitfenster

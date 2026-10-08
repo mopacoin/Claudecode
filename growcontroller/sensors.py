@@ -152,9 +152,9 @@ class MerossPower:
     """Leistungsmessung einer Meross-Steckdose (z. B. MSS305) im LAN, nur lesend – schaltet nichts.
     Liefert w (Watt), v (Volt), a (Ampere). Abfrage in eigenem Thread alle `poll_s` Sekunden."""
 
-    def __init__(self, ip, key, poll_s=5, max_age_s=20, **_):
+    def __init__(self, ip, key, poll_s=2, max_age_s=20, **_):
         self.ip, self.key, self.poll_s, self.max_age = ip, key, max(2, poll_s), max_age_s
-        self.val, self.t, self.error = None, 0.0, None
+        self.val, self.t, self.error, self.seq = None, 0.0, None, 0
         threading.Thread(target=self._run, daemon=True, name=f"meross-power-{ip}").start()
 
     @staticmethod
@@ -166,7 +166,10 @@ class MerossPower:
         from .backends import meross_request
         while True:
             try:
-                self.val = self.parse(meross_request(self.ip, self.key, "Appliance.Control.Electricity", "GET", {}))
+                val = self.parse(meross_request(self.ip, self.key, "Appliance.Control.Electricity", "GET", {}))
+                self.seq += 1
+                val["seq"] = self.seq  # Zähler: jede echte Abfrage nur einmal auswerten
+                self.val = val
                 self.t, self.error = time.monotonic(), None
             except Exception as e:
                 self.error = f"Meross {self.ip}: {e}"

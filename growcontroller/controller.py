@@ -14,8 +14,10 @@ from . import outputs, rules, sensors, settings
 log = logging.getLogger("grow")
 RANGES = {"1h": 1, "6h": 6, "24h": 24, "7d": 168}
 LEARN_BIN = 10        # Grad je Lernpunkt-Fach
-SETTLE_S = 20         # so lange muss der Servo stillstehen, bevor gemessen wird (Lüfter läuft ein)
+SETTLE_S = 8          # nach jeder Servo-Bewegung so lange warten, bis der Messwert stimmt (Lüfter läuft ein)
+SAMPLES = 4           # dann Mittelwert aus so vielen echten Abfragen der Steckdose
 SWEEP_STEP = 15       # Schrittweite der automatischen Kalibrierung
+SWEEP_MAX_S = 60      # bleiben die Messwerte länger aus, wird die Messfahrt abgebrochen
 MAX_POINTS = 600
 ALARM_TEXT = {
     "temp_high": "Temperatur zu hoch", "temp_low": "Temperatur zu niedrig",
@@ -242,20 +244,24 @@ class Controller:
 
     # --- Kennlinie automatisch lernen (Leistungsmessung an der Abluft-Steckdose, Sensor-Prefix "exhaust_") ---
     def _learn_step(self, o):
-        mono, w = time.monotonic(), self.fresh.get("exhaust_w")
+        mono, w, seq = time.monotonic(), self.fresh.get("exhaust_w"), self.fresh.get("exhaust_seq")
         L = self._lrn
         if o.angle != L["angle"]:
-            L["angle"], L["since"] = o.angle, mono
+            L["angle"], L["since"], L["vals"], L["seq"] = o.angle, mono, [], None
             if self.sweep:
-                self.sweep["vals"] = []
+                self.sweep["step_t"] = mono
             return
-        settled = mono - L["since"] >= SETTLE_S
+        # nur neue Abfragen der Steckdose zählen, und erst nach der Mindest-Einschwingzeit
+        if w is not None and mono - L["since"] >= SETTLE_S and (seq is None or seq != L.get("seq")):
+            L["seq"] = seq
+            L.setdefault("vals", []).append(w)
         if self.sweep:
-            self._sweep_step(o, mono, w if settled else None)
-        elif settled and w is not None and o.mode == "auto" and self.cfg["exhaust"].get("auto_learn", True) \
-                and mono - L["last"] >= 30:
-            L["last"] = mono
-            self._add_sample(o.angle, w)
+            self._sweep_step(o, mono)
+        elif len(L.get("vals", [])) >= SAMPLES and o.mode == "auto" and self.cfg["exhaust"].get("auto_learn", True):
+            if mono - L["last"] >= 30:
+                L["last"] = mono
+                self._add_sample(o.angle, sum(L["vals"]) / len(L["vals"]))
+            L["vals"] = []  # nächster Mittelwert aus neuen Messungen
             if mono - L["saved"] > 600:  # Lernstand höchstens alle 10 min speichern (SD-Karte schonen)
                 self._save_learn(rebuild=True)
 
@@ -284,7 +290,7 @@ class Controller:
         if self.fresh.get("exhaust_w") is None:
             raise ValueError("Keine Leistungsmessung der Abluft (Sensor mit prefix \"exhaust_\")")
         with self.lock:
-            self.sweep = {"out": o.name, "angles": list(range(0, 181, SWEEP_STEP)), "i": 0, "vals": [],
+            self.sweep = {"out": o.name, "angles": list(range(0, 181, SWEEP_STEP)), "i": 0,
                           "started": time.monotonic(), "step_t": time.monotonic(), "points": []}
             o.mode, o.manual_angle = "manual", 0
             self.event("settings", "Automatische Abluft-Kalibrierung gestartet")
@@ -298,13 +304,12 @@ class Controller:
             self.sweep = None
             self.event("settings", f"Abluft-Kalibrierung {msg}")
 
-    def _sweep_step(self, o, mono, w):
-        sw = self.sweep
-        if w is not None:
-            sw["vals"].append(w)
-        if len(sw["vals"]) >= 3:
-            vals = sorted(sw["vals"])
-            sw["points"].append([o.angle, round(vals[1], 1)])  # Median aus 3 Messungen
+    def _sweep_step(self, o, mono):
+        sw, vals = self.sweep, self._lrn.get("vals", [])
+        if o.angle != sw["angles"][sw["i"]]:
+            return  # Servo noch nicht am Messwinkel
+        if len(vals) >= SAMPLES:
+            sw["points"].append([o.angle, round(sum(vals[:SAMPLES]) / SAMPLES, 1)])  # Mittelwert
             sw["i"] += 1
             if sw["i"] >= len(sw["angles"]):
                 self.learn = {str(a): [a, w_, 5] for a, w_ in sw["points"]}  # Messfahrt ersetzt alte Lernpunkte
@@ -315,8 +320,8 @@ class Controller:
                 self._save_learn()
                 self.stop_sweep("abgeschlossen: " + ", ".join(f"{a}°={w_:g} W" for a, w_ in self.cal))
                 return
-            o.manual_angle, sw["vals"], sw["step_t"] = sw["angles"][sw["i"]], [], mono
-        elif mono - sw["step_t"] > 120:
+            o.manual_angle, sw["step_t"] = sw["angles"][sw["i"]], mono
+        elif mono - sw["step_t"] > SETTLE_S + SWEEP_MAX_S:
             self.stop_sweep("abgebrochen: keine Leistungsmesswerte")
 
     def set_calibration(self, points):
@@ -488,7 +493,8 @@ class Controller:
                             "cal": self.cal,
                             "learned": sum(1 for v in self.learn.values() if v[2] >= 3),
                             "sweep": {"i": self.sweep["i"], "n": len(self.sweep["angles"]),
-                                      "angle": self.sweep["angles"][self.sweep["i"]]} if self.sweep else None},
+                                      "angle": self.sweep["angles"][self.sweep["i"]],
+                                      "vals": [round(v, 1) for v in self._lrn.get("vals", [])]} if self.sweep else None},
                 "stats": self.stats(), "alarms": [{"id": k, **v} for k, v in self.alarms.items()],
                 "grow": self._grow_status(g, gday),
                 "irrigation": {"last": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),

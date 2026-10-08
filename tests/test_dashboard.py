@@ -307,13 +307,17 @@ class TestLearning(unittest.TestCase):
             clock = [1000.0]
             cm.time.monotonic = lambda: clock[0]
             try:
-                c.fresh = {"exhaust_w": 20.0}
+                c.fresh = {"exhaust_w": 20.0, "exhaust_seq": 0}
                 c.start_sweep()
                 o = c.outs["vent"]
-                for _ in range(400):
+                fan, seq = 20.0, 0
+                for _ in range(2000):
                     clock[0] += 5
                     c._apply_servo(o, {}, True, None)      # fährt den Messwinkel an
-                    c.fresh = {"exhaust_w": round(true_w(o.angle), 1)}
+                    fan = true_w(o.angle) if o.angle == getattr(o, '_prev', o.angle) else fan  # neuer Wert erst nach einem Takt
+                    o._prev = o.angle
+                    seq += 1
+                    c.fresh = {"exhaust_w": round(fan, 1), "exhaust_seq": seq}
                     c._learn_step(o)
                     if not c.sweep:
                         break
@@ -335,9 +339,9 @@ class TestLearning(unittest.TestCase):
             cm.time.monotonic = lambda: clock[0]
             try:
                 c._lrn = {"angle": None, "since": 0, "last": 0, "saved": clock[0]}
-                for _ in range(30):
+                for i in range(30):
                     clock[0] += 31
-                    c.fresh = {"exhaust_w": 47.0}
+                    c.fresh = {"exhaust_w": 47.0, "exhaust_seq": i}
                     c._learn_step(o)
                 self.assertGreaterEqual(c.learn["120"][2], 3)
                 self.assertIn([120, 47.0], c.cal)  # gemessener Punkt ist in der Kennlinie

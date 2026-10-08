@@ -139,7 +139,7 @@ class Cloud:
                 if serial:
                     out.append({"serial": serial, "name": dv.get("deviceName") or serial, "product": dv.get("productType", ""),
                                 "prefix": prefix_for(dv.get("productType", "")), "online": dv.get("connectStatus") in (1, "1", True),
-                                "room": room.get("roomName", "")})
+                                "room": room.get("roomName", ""), "raw": dv})
         return out
 
 
@@ -270,6 +270,7 @@ def _cli():
     devs = cloud.devices(sess)
     for d in devs:
         print(f"  {d['name']:20} {d['product']:12} {d['prefix']}  {d['serial']}  online={d['online']}  Raum={d['room']}")
+        print("    Datensatz:", json.dumps(d["raw"], ensure_ascii=False)[:1500])
     dev = next((d for d in devs if d["prefix"] == "PS"), devs[0] if devs else None)
     if not dev:
         raise SystemExit("Keine Geräte im Konto.")

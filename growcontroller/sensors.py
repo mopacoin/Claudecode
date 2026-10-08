@@ -151,5 +151,13 @@ class Govee:
 DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B20, "govee": Govee}
 
 
+def _spiderfarmer(**kw):
+    from .spiderfarmer import SpiderFarmerSensor  # erst laden, wenn benutzt (braucht cryptography + paho-mqtt)
+    return SpiderFarmerSensor(**kw)
+
+
+DRIVERS["spiderfarmer"] = _spiderfarmer
+
+
 def create(cfg):
     return DRIVERS[cfg["driver"]](**{k: v for k, v in cfg.items() if k not in ("driver", "prefix")})

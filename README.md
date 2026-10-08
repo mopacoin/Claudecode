@@ -41,9 +41,15 @@ Ohne `web.token` kann jeder im Netz Einstellungen ändern – bitte ein Token se
 |---|---|---|
 | `govee` | Govee-Thermo-Hygrometer per Bluetooth (H5072/74/75, H5100–05, H5174/77, H5179), Paket `bleak` | `mac` |
 | `bme280` / `dht22` / `ds18b20` | kabelgebunden | siehe `sensors.py` |
+| `spiderfarmer` | Spider-Farmer-Cloud, nur lesend (z. B. PS5-Steckdosen, ggf. Sensor), Pakete `cryptography` + `paho-mqtt` | `email`, `password`, `device`, `poll_s`, `outlet_names` |
 | `sim` | simuliert (Test) | – |
 
 `"prefix": "room_"` macht einen Sensor zum reinen Anzeige-Sensor (Raumklima), er regelt nicht.
+**Spider Farmer (Cloud):** Anmeldung wie die App, dann Status per Cloud-MQTT (inoffiziell, nach
+[zeroXmrcl/spider-farmer-cloud-api](https://github.com/zeroXmrcl/spider-farmer-cloud-api), MIT, und
+[iceboerg00/spiderfarmer-bridge](https://github.com/iceboerg00/spiderfarmer-bridge)). Test: `python -m growcontroller.spiderfarmer`
+(mit `SF_EMAIL`/`SF_PASSWORD` aus `.env`). Bei falschem Passwort hält der Treiber sofort an, weil die Cloud sonst den Login sperrt.
+
 Govee-Sensoren testen: `.venv/bin/python -m growcontroller.govee_scan <MAC> …` zeigt Rohdaten und erkannte Werte.
 
 ## Ausgangs-Typen (`config.json` → `outputs`)

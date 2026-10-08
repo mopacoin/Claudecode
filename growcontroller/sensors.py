@@ -133,7 +133,7 @@ class _GoveeScanner:
 class Govee:
     """Govee-Thermo-Hygrometer per Bluetooth. Liefert den zuletzt empfangenen Wert (max. `max_age_s` alt)."""
 
-    def __init__(self, mac, max_age_s=600, **_):
+    def __init__(self, mac, max_age_s=120, **_):
         self.mac, self.max_age = mac.upper(), max_age_s
         self.scan = _GoveeScanner.get()
 
@@ -185,4 +185,5 @@ DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B2
 
 
 def create(cfg):
-    return DRIVERS[cfg["driver"]](**{k: v for k, v in cfg.items() if k not in ("driver", "prefix")})
+    skip = ("driver", "prefix", "temp_offset", "hum_offset")  # Offsets wendet der Controller an
+    return DRIVERS[cfg["driver"]](**{k: v for k, v in cfg.items() if k not in skip})

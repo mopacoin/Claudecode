@@ -13,7 +13,9 @@ from . import outputs, rules, sensors, settings
 
 log = logging.getLogger("grow")
 RANGES = {"1h": 1, "6h": 6, "24h": 24, "7d": 168}
-LEARN_BIN = 10        # Grad je Lernpunkt-Fach
+LEARN_BIN = 15        # Grad je Lernpunkt-Fach (gleich der Messfahrt-Schrittweite)
+MIN_W = 2.0           # darunter gilt die Abluft-Steckdose als aus -> nicht lernen
+MANUAL_MAX_S = 600    # Kalibrier-Test endet spätestens nach 10 min von selbst
 SETTLE_S = 8          # nach jeder Servo-Bewegung so lange warten, bis der Messwert stimmt (Lüfter läuft ein)
 SAMPLES = 4           # dann Mittelwert aus so vielen echten Abfragen der Steckdose
 SWEEP_STEP = 15       # Schrittweite der automatischen Kalibrierung
@@ -37,6 +39,12 @@ class Controller:
             cfg[sec] = {**d, **cfg.get(sec, {}), **self.saved.get(sec, {})}
         # prefix: z. B. "room_" für einen Raum-Sensor, der nur angezeigt wird und nicht regelt
         self.sensors = {n: (c.get("prefix", ""), sensors.create(c)) for n, c in cfg["sensors"].items()}
+        # Kalibrier-Versatz je Sensor (z. B. "temp_offset": -0.4, "hum_offset": 2) – wie bei Profi-Controllern
+        self._offsets = {n: (float(c.get("temp_offset", 0)), float(c.get("hum_offset", 0))) for n, c in cfg["sensors"].items()}
+        self._sensor_ok = {n: time.monotonic() for n in self.sensors}  # letzte erfolgreiche Messung je Sensor
+        self._rt = {}   # Messwert -> Zeitpunkt; veraltete Werte werden entfernt statt weiter angezeigt/geregelt
+        self.rev = 0    # Einstellungs-Revision: die Oberfläche lädt nach, wenn sich etwas geändert hat
+        self._ev_n = 0
         self._warned = {}
         self.exhaust_notes = []
         self._on_since = {}  # Rolle -> seit wann an (monotonic), für Entfeuchter-Stufe 2
@@ -120,28 +128,45 @@ class Controller:
         try:
             with open(self._p("events.jsonl"), "a") as f:
                 f.write(json.dumps(e, ensure_ascii=False) + "\n")
+            self._ev_n += 1
+            if self._ev_n % 200 == 0 and os.path.getsize(self._p("events.jsonl")) > 1_000_000:
+                with open(self._p("events.jsonl")) as f:  # SD-Karte nicht volllaufen lassen
+                    keep = f.readlines()[-2000:]
+                with open(self._p("events.jsonl"), "w") as f:
+                    f.writelines(keep)
         except OSError:
             pass
 
     # --- Messen ---
     def read_sensors(self):
-        merged, main = {}, False
+        merged, main, mono = {}, False, time.monotonic()
         for name, (prefix, s) in self.sensors.items():
             try:
+                t_off, h_off = self._offsets.get(name, (0.0, 0.0))
                 for k, v in s.read().items():
-                    if v is not None:
-                        merged[prefix + k] = round(float(v), 1)
-                        main = main or (not prefix and k in ("temp", "hum"))
+                    if v is None:
+                        continue
+                    v = float(v) + (t_off if k == "temp" else h_off if k == "hum" else 0.0)
+                    if k == "hum":
+                        v = min(100.0, max(0.0, v))
+                    merged[prefix + k] = v if k.endswith("seq") else round(v, 1 if k in ("temp", "hum") else 2)
+                    main = main or (not prefix and k in ("temp", "hum"))
+                self._sensor_ok[name] = mono
             except Exception as e:  # Sensorfehler dürfen die Regelung nicht beenden
                 now = time.monotonic()
                 if now - self._warned.get(name, -1e9) > 60:  # höchstens 1x pro Minute ins Log
                     self._warned[name] = now
                     log.warning("Sensor %s: %s", name, e)
         self.fresh = merged
-        if merged:
-            self.readings.update(merged)
+        self.readings.update(merged)
+        for k in merged:
+            self._rt[k] = mono
+        timeout = self.cfg.get("sensor_timeout_s", 120)
+        for k in [k for k, t in self._rt.items() if mono - t > timeout]:  # nichts Veraltetes anzeigen oder regeln
+            self.readings.pop(k, None)
+            self._rt.pop(k)
         if main:  # nur der Regel-Sensor zählt für "Sensordaten aktuell"
-            self.last_ok = time.monotonic()
+            self.last_ok = mono
 
     def stale(self):
         return self.last_ok is None or time.monotonic() - self.last_ok > self.cfg.get("sensor_timeout_s", 120)
@@ -184,7 +209,7 @@ class Controller:
                 want.update(rules.climate(self.effective_climate(day), day, self.readings.get("temp"),
                                           self.readings.get("hum"), cur, now, self.has_dehum))
             want["pump"] = self._pump(now)
-            want["vent"] = want["intake"] = want["fan"]  # Abluft-Klappe und Zuluft folgen dem Lüfterbedarf
+            want["vent"] = want["intake"] = want["fan"]  # ohne stufenlose Abluft: folgen dem Lüfterbedarf
             ex_w, notes = None, []
             if not self.stale():
                 p = "day" if day else "night"
@@ -193,6 +218,16 @@ class Controller:
                 ex_w, notes = rules.exhaust_plan(self.cfg["exhaust"], day, r.get("temp"), r.get("hum"), cl[f"temp_{p}"], cl[f"hum_{p}"],
                                                  r.get("room_temp"), r.get("room_hum"), active, dehum_min)
             self._exhaust_notes(notes)
+            ex = self.cfg["exhaust"]
+            if ex["enabled"] and ex.get("intake_pct", 0) and any(o.proportional for o in self.outs.values()):
+                # Zuluft (Ein/Aus) unterstützt die Abluft, sobald diese kräftig läuft – wie die Unterdruck-Regelung
+                # bei Profi-Controllern (Zuluft immer schwächer als Abluft, damit kein Geruch austritt)
+                top = ex["max_w"] if day else ex["max_w_night"]
+                w = top if ex_w is None else ex_w
+                share = 100 * (w - ex["min_w"]) / (top - ex["min_w"]) if top > ex["min_w"] else 0
+                pct = ex["intake_pct"]
+                want["intake"] = share >= pct or (cur.get("intake", False) and share >= pct - 10) \
+                    or now.minute < self.cfg["climate"].get("fan_min_per_hour", 0)
             for n, o in self.outs.items():
                 if o.proportional:
                     self._apply_servo(o, want, day, ex_w)
@@ -200,13 +235,17 @@ class Controller:
                     o.apply(want.get(o.role, False))
                 if o.state != self._prev_state[n]:
                     self._prev_state[n] = o.state
-                    self.event("output", f"{n}: {'EIN' if o.state else 'AUS'}")
+                    if not o.proportional:  # stufenlose Abluft wechselt laufend – nicht als EIN/AUS protokollieren
+                        self.event("output", f"{n}: {'EIN' if o.state else 'AUS'}")
             self._check_alarms()
             self._record(now)
             self._advance(now)
 
     def _apply_servo(self, o, want, day, ex_w):
         ex = self.cfg["exhaust"]
+        if o.mode == "manual" and not self.sweep and time.monotonic() - getattr(o, "_manual_t", 0) > MANUAL_MAX_S:
+            o.mode, o.manual_angle = getattr(o, "_prev_mode", "auto"), None
+            self.event("mode", f"{o.name}: Kalibrier-Test nach {MANUAL_MAX_S // 60} min automatisch beendet")
         top = ex["max_w"] if day else ex["max_w_night"]
         if o.mode == "manual" and o.manual_angle is not None:  # Kalibrier-Test
             o.apply_level(o.manual_angle, round(rules.watts_for_angle(self.cal, o.manual_angle), 1), 0)
@@ -252,7 +291,7 @@ class Controller:
                 self.sweep["step_t"] = mono
             return
         # nur neue Abfragen der Steckdose zählen, und erst nach der Mindest-Einschwingzeit
-        if w is not None and mono - L["since"] >= SETTLE_S and (seq is None or seq != L.get("seq")):
+        if w is not None and w >= MIN_W and mono - L["since"] >= SETTLE_S and (seq is None or seq != L.get("seq")):
             L["seq"] = seq
             L.setdefault("vals", []).append(w)
         if self.sweep:
@@ -266,7 +305,7 @@ class Controller:
                 self._save_learn(rebuild=True)
 
     def _add_sample(self, angle, w, weight=1):
-        key = str(int(round(angle / LEARN_BIN) * LEARN_BIN))
+        key = str(int((angle + LEARN_BIN / 2) // LEARN_BIN * LEARN_BIN))  # gleiche Fächer wie die Messfahrt
         a0, w0, n = self.learn.get(key, [angle, w, 0])
         k = weight / (min(n, 20) + weight)  # gleitender Mittelwert, neue Werte zählen weiter mit
         self.learn[key] = [round(a0 + (angle - a0) * k, 1), round(w0 + (w - w0) * k, 2), n + weight]
@@ -287,10 +326,14 @@ class Controller:
         o = next((x for x in self.outs.values() if x.proportional), None)
         if not o:
             raise ValueError("Kein stufenloser Abluft-Servo konfiguriert")
-        if self.fresh.get("exhaust_w") is None:
+        w = self.fresh.get("exhaust_w")
+        if w is None:
             raise ValueError("Keine Leistungsmessung der Abluft (Sensor mit prefix \"exhaust_\")")
+        if w < MIN_W:
+            raise ValueError(f"Abluft misst {w:.1f} W – ist die Abluft-Steckdose eingeschaltet?")
         with self.lock:
-            self.sweep = {"out": o.name, "angles": list(range(0, 181, SWEEP_STEP)), "i": 0,
+            prev = getattr(o, "_prev_mode", "auto") if o.mode == "manual" else o.mode
+            self.sweep = {"out": o.name, "angles": list(range(0, 181, SWEEP_STEP)), "i": 0, "prev_mode": prev,
                           "started": time.monotonic(), "step_t": time.monotonic(), "points": []}
             o.mode, o.manual_angle = "manual", 0
             self.event("settings", "Automatische Abluft-Kalibrierung gestartet")
@@ -300,14 +343,19 @@ class Controller:
             if not self.sweep:
                 return
             o = self.outs[self.sweep["out"]]
-            o.mode, o.manual_angle = "auto", None
+            o.mode, o.manual_angle = self.sweep.get("prev_mode", "auto"), None
             self.sweep = None
+            self.rev += 1
             self.event("settings", f"Abluft-Kalibrierung {msg}")
 
     def _sweep_step(self, o, mono):
         sw, vals = self.sweep, self._lrn.get("vals", [])
         if o.angle != sw["angles"][sw["i"]]:
             return  # Servo noch nicht am Messwinkel
+        w = self.fresh.get("exhaust_w")
+        if w is not None and w < MIN_W and mono - sw["step_t"] > SETTLE_S:
+            self.stop_sweep(f"abgebrochen: Abluft misst {w:.1f} W – Steckdose aus?")
+            return
         if len(vals) >= SAMPLES:
             sw["points"].append([o.angle, round(sum(vals[:SAMPLES]) / SAMPLES, 1)])  # Mittelwert
             sw["i"] += 1
@@ -321,7 +369,7 @@ class Controller:
                 self.stop_sweep("abgeschlossen: " + ", ".join(f"{a}°={w_:g} W" for a, w_ in self.cal))
                 return
             o.manual_angle, sw["step_t"] = sw["angles"][sw["i"]], mono
-        elif mono - sw["step_t"] > SETTLE_S + SWEEP_MAX_S:
+        elif mono - sw["step_t"] > SETTLE_S + SWEEP_MAX_S:  # keine (neuen) Messwerte
             self.stop_sweep("abgebrochen: keine Leistungsmesswerte")
 
     def set_calibration(self, points):
@@ -334,6 +382,7 @@ class Controller:
             self.learn = {}  # manuelle Kennlinie hat Vorrang, Lernstand neu beginnen
             self.saved["servo_learn"] = {}
             settings.save(self._p("settings.json"), self.saved)
+            self.rev += 1
             self.event("settings", "Servo-Kennlinie: " + ", ".join(f"{a}°={w:g} W" for a, w in pts))
         return pts, None
 
@@ -344,10 +393,18 @@ class Controller:
         if not o or not o.proportional or not isinstance(angle, (int, float)) or isinstance(angle, bool) or not 0 <= angle <= 180:
             raise ValueError("ungültig")
         with self.lock:
+            if o.mode != "manual":
+                o._prev_mode = o.mode
+            o._manual_t = time.monotonic()
             o.mode, o.manual_angle = "manual", int(angle)
             o.apply_level(o.manual_angle, round(rules.watts_for_angle(self.cal, o.manual_angle), 1), 0)
 
+    def _pump_out(self):
+        return next((o for o in self.outs.values() if o.role == "pump"), None)
+
     def _pump(self, now):
+        if not self._pump_out():  # ohne Pumpe keine (scheinbaren) Bewässerungen protokollieren
+            return False
         mono = time.monotonic()
         if mono < self.pump_until:
             return True
@@ -363,6 +420,11 @@ class Controller:
         self.event("irrigation", f"Bewässerung gestartet ({self.cfg['irrigation']['duration_s']} s)")
 
     def water_now(self):
+        o = self._pump_out()
+        if not o:
+            raise ValueError("Keine Pumpe konfiguriert (Ausgang mit Rolle \"pump\")")
+        if o.mode == "off":
+            raise ValueError("Die Pumpe steht auf „Aus“ – erst auf Auto stellen")
         with self.lock:
             self._start_pump(datetime.now())
 
@@ -377,6 +439,10 @@ class Controller:
             conds["hum_high"] = (h is not None and h > a["hum_max"], f"Luftfeuchte {h} % über {a['hum_max']} %", delay)
             conds["hum_low"] = (h is not None and h < a["hum_min"], f"Luftfeuchte {h} % unter {a['hum_min']} %", delay)
         conds["sensor_stale"] = (self.stale(), ALARM_TEXT["sensor_stale"], 60)
+        mono_now = time.monotonic()
+        for name, (prefix, _s) in self.sensors.items():
+            if prefix:  # Zusatz-Sensoren (Raum, Leistungsmessung); der Regel-Sensor hat den Alarm oben
+                conds[f"sensor:{name}"] = (mono_now - self._sensor_ok[name] > 300, f"Sensor {name} liefert keine Daten", 0)
         for n, o in self.outs.items():
             conds[f"offline:{n}"] = (getattr(o.backend, "healthy", True) is False, f"Gerät {n} nicht erreichbar", 60)
         mono = time.monotonic()
@@ -397,7 +463,7 @@ class Controller:
     def _record(self, now):
         row = {"t": now.isoformat(timespec="seconds"), **self.readings, "vpd": self.vpd(),
                **{n: int(o.state) for n, o in self.outs.items()}}
-        row = {k: v for k, v in row.items() if v is not None}
+        row = {k: v for k, v in row.items() if v is not None and not k.endswith("seq")}
         self.live.append(row)
         if self._last_minute != (now.hour, now.minute):
             self._last_minute = (now.hour, now.minute)
@@ -416,6 +482,8 @@ class Controller:
                     if f.readline().strip().split(",") == fields:
                         break
             new = not os.path.exists(path)
+            if new:
+                self._cleanup_logs(now)
             with open(path, "a", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
                 if new:
@@ -423,6 +491,16 @@ class Controller:
                 w.writerow(row)
         except OSError as e:
             log.warning("CSV: %s", e)
+
+    def _cleanup_logs(self, now):
+        """Verlaufsdateien älter als history_days (Standard 400 Tage) löschen."""
+        cutoff = (now - timedelta(days=self.cfg.get("history_days", 400))).strftime("%Y-%m-%d")
+        for p in glob.glob(self._p("log-*.csv")):
+            if os.path.basename(p)[4:14] < cutoff:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
 
     def _rows(self, rng):
         hours = RANGES.get(rng, 1)
@@ -443,7 +521,7 @@ class Controller:
             r = {"t": chunk[-1]["t"]}
             for k in {k for c in chunk for k in c if k != "t"}:
                 vals = [c[k] for c in chunk if k in c]
-                r[k] = round(sum(vals) / len(vals), 2) if k in ("temp", "hum", "vpd") else max(vals)
+                r[k] = max(vals) if k in self.outs else round(sum(vals) / len(vals), 2)  # Geräte: an, wenn je an
             out.append(r)
         return out
 
@@ -476,15 +554,15 @@ class Controller:
             cl = self.effective_climate(day)
             p = "day" if day else "night"
             g = self.cfg["grow"]
-            gday = None
+            gday = starts_in = None
             if g["start_date"]:
                 gday = (now.date() - datetime.strptime(g["start_date"], "%Y-%m-%d").date()).days + 1
-            ir = self.cfg["irrigation"]
-            nxt = None
-            if ir["enabled"] and self.last_irrigation:
-                nxt = (self.last_irrigation + timedelta(minutes=ir["interval_min"])).isoformat(timespec="minutes")
+                if gday < 1:  # Start liegt in der Zukunft
+                    gday, starts_in = None, 1 - gday
+            ir, pump = self.cfg["irrigation"], self._pump_out()
+            nxt = rules.irrigation_next(ir, self.last_irrigation, now) if pump else None
             return {
-                "time": now.isoformat(timespec="seconds"), "uptime_s": int(time.time() - self.started),
+                "time": now.isoformat(timespec="seconds"), "uptime_s": int(time.time() - self.started), "rev": self.rev,
                 "readings": self.readings, "vpd": self.vpd(), "stale": self.stale(), "is_day": day,
                 "targets": {"temp": cl[f"temp_{p}"], "hum": cl[f"hum_{p}"], "vpd": self.cfg["climate"][f"vpd_{p}"],
                             "control": cl["control"]},
@@ -496,9 +574,11 @@ class Controller:
                                       "angle": self.sweep["angles"][self.sweep["i"]],
                                       "vals": [round(v, 1) for v in self._lrn.get("vals", [])]} if self.sweep else None},
                 "stats": self.stats(), "alarms": [{"id": k, **v} for k, v in self.alarms.items()],
-                "grow": self._grow_status(g, gday),
+                "grow": {**self._grow_status(g, gday), "starts_in": starts_in},
                 "irrigation": {"last": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),
-                               "next": nxt, "running": time.monotonic() < self.pump_until},
+                               "next": nxt and nxt.isoformat(timespec="minutes"), "available": bool(pump),
+                               "enabled": ir["enabled"], "pump_mode": pump.mode if pump else None,
+                               "running": time.monotonic() < self.pump_until},
                 "outputs": {n: {"state": o.state, "mode": o.mode, "role": o.role,
                                 "ok": getattr(o.backend, "healthy", True), "info": o.info,
                                 "proportional": o.proportional, "angle": o.angle, "watts": o.watts} for n, o in self.outs.items()},
@@ -524,6 +604,7 @@ class Controller:
                 self.cfg[sec].update(vals)
                 self.saved.setdefault(sec, {}).update(vals)
             settings.save(self._p("settings.json"), self.saved)
+            self.rev += 1
             self.event("settings", "Einstellungen geändert: " + ", ".join(f"{s}.{k}={v}" for s, d in clean.items() for k, v in d.items()))
             return self.get_settings(), {}
 
@@ -555,6 +636,7 @@ class Controller:
             pid = pid or "c" + uuid.uuid4().hex[:8]
             custom[pid] = clean
             settings.save(self._p("settings.json"), self.saved)
+            self.rev += 1
             self.event("settings", f"Zyklus gespeichert: {clean['label']}")
             return pid, {}
 
@@ -571,6 +653,7 @@ class Controller:
                 self.cfg["grow"]["stage"] = ""
                 self.saved.setdefault("grow", {})["stage"] = ""
             settings.save(self._p("settings.json"), self.saved)
+            self.rev += 1
             self.event("settings", f"Zyklus gelöscht: {label}")
             return True
 
@@ -621,6 +704,7 @@ class Controller:
             self.outs[name].manual_angle = None
             self.saved.setdefault("modes", {})[name] = mode
             settings.save(self._p("settings.json"), self.saved)
+            self.rev += 1
             self.event("mode", f"{name}: Modus {mode}")
 
     def run(self):

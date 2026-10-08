@@ -305,6 +305,7 @@ class TestLearning(unittest.TestCase):
             c = self._ctl(d)
             true_w = lambda a: 20 + (a / 180) ** 3 * 65  # flach, dann steil wie beim echten Lüfter
             clock = [1000.0]
+            orig_mono = cm.time.monotonic
             cm.time.monotonic = lambda: clock[0]
             try:
                 c.fresh = {"exhaust_w": 20.0, "exhaust_seq": 0}
@@ -326,7 +327,7 @@ class TestLearning(unittest.TestCase):
                 self.assertEqual(len(c.cal), 13)
                 self.assertAlmostEqual(dict(map(tuple, c.cal))[135], true_w(135), delta=0.2)
             finally:
-                cm.time.monotonic = time.monotonic
+                cm.time.monotonic = orig_mono
             c.shutdown()
             c2 = make(d); self.assertEqual(len(c2.cal), 13); self.assertEqual(len(c2.learn), 13); c2.shutdown()
 
@@ -336,6 +337,7 @@ class TestLearning(unittest.TestCase):
             c = self._ctl(d)
             o = c.outs["vent"]; o.angle = 120
             clock = [1000.0]
+            orig_mono = cm.time.monotonic
             cm.time.monotonic = lambda: clock[0]
             try:
                 c._lrn = {"angle": None, "since": 0, "last": 0, "saved": clock[0]}
@@ -346,5 +348,5 @@ class TestLearning(unittest.TestCase):
                 self.assertGreaterEqual(c.learn["120"][2], 3)
                 self.assertIn([120, 47.0], c.cal)  # gemessener Punkt ist in der Kennlinie
             finally:
-                cm.time.monotonic = time.monotonic
+                cm.time.monotonic = orig_mono
             c.shutdown()

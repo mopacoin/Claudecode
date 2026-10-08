@@ -29,6 +29,18 @@ def make_handler(ctl, token):
                 return False
             return True
 
+        def _same_origin(self):
+            """Schutz gegen Fremdseiten (CSRF): Browser schicken bei fremden Seiten einen anderen Origin mit,
+            und JSON-Anfragen von fremden Seiten erzwingen einen CORS-Preflight, den wir nie erlauben."""
+            origin = self.headers.get("Origin")
+            if origin and urlparse(origin).netloc != self.headers.get("Host"):
+                self._send(403, {"error": "fremde Herkunft"})
+                return False
+            if self.command == "POST" and "application/json" not in (self.headers.get("Content-Type") or ""):
+                self._send(415, {"error": "Content-Type application/json erforderlich"})
+                return False
+            return True
+
         def _body(self):
             n = int(self.headers.get("Content-Length", 0) or 0)
             return json.loads(self.rfile.read(n) or b"{}") if n <= 65536 else None
@@ -59,7 +71,7 @@ def make_handler(ctl, token):
                 self._send(404, {"error": "not found"})
 
         def do_POST(self):
-            if not self._auth():
+            if not self._same_origin() or not self._auth():
                 return
             try:
                 body = self._body()
@@ -67,6 +79,8 @@ def make_handler(ctl, token):
                 return self._send(400, {"error": "ungültiges JSON"})
             if body is None:
                 return self._send(413, {"error": "zu groß"})
+            if not isinstance(body, dict):
+                return self._send(400, {"error": "JSON-Objekt erwartet"})
             parts = urlparse(self.path).path.strip("/").split("/")
             if parts == ["api", "settings"]:
                 new, errors = ctl.update_settings(body)
@@ -93,7 +107,10 @@ def make_handler(ctl, token):
                 except ValueError:
                     return self._send(400, {"error": "Winkel 0…180 und stufenloser Servo erforderlich"})
             if parts == ["api", "irrigation", "run"]:
-                ctl.water_now()
+                try:
+                    ctl.water_now()
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
                 return self._send(200, ctl.status())
             if len(parts) == 3 and parts[:2] == ["api", "output"]:
                 try:
@@ -104,7 +121,7 @@ def make_handler(ctl, token):
             self._send(404, {"error": "not found"})
 
         def do_DELETE(self):
-            if not self._auth():
+            if not self._same_origin() or not self._auth():
                 return
             parts = urlparse(self.path).path.strip("/").split("/")
             if len(parts) == 3 and parts[:2] == ["api", "presets"]:

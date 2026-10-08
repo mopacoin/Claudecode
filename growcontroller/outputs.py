@@ -47,15 +47,21 @@ class Output:
         self.mode = "auto"      # auto | on | off
         self.state = False
         self.changed = time.monotonic() - min_switch_s
-        backend.set(False)
+        self._max_hit = False  # Laufzeitbegrenzung ausgelöst -> erst nach "aus" wieder freigeben
+        if not proportional:
+            backend.set(False)
 
     def apply(self, want):
         """want = Sollzustand der Automatik für diese Rolle; Modus kann überschreiben."""
         if self.mode in ("on", "off"):
             want = self.mode == "on"
         now = time.monotonic()
+        if not want:
+            self._max_hit = False
         if self.state and self.max_on_s and now - self.changed > self.max_on_s:
-            want = False  # Laufzeitbegrenzung (z. B. Pumpe)
+            self._max_hit = True  # Laufzeitbegrenzung (z. B. Pumpe): bleibt aus, bis die Anforderung endet
+        if self._max_hit:
+            want = False
         if want != self.state and (now - self.changed >= self.min_switch_s or self.mode == "off"):
             self.state, self.changed = want, now
             self.backend.set(want)

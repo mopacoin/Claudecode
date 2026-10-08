@@ -290,7 +290,8 @@ const FORMS = {
     {k: 'interlock_hum', l: 'Befeuchter läuft → Abluft auf Grundlast', t: 'bool'}, {k: 'interlock_heat', l: 'Heizung läuft → Abluft auf Grundlast', t: 'bool'},
     {k: 'temp_priority', l: 'Temperatur hat Vorrang (zu heiß → Abluft darf trotzdem hoch)', t: 'bool'},
     {k: 'ramp_w_min', l: 'Sanfte Rampe: max. Änderung (0 = aus)', u: 'W/min', step: 1},
-    {k: 'auto_learn', l: 'Kennlinie im Betrieb automatisch nachlernen (braucht Leistungsmessung)', t: 'bool'}],
+    {k: 'auto_learn', l: 'Kennlinie im Betrieb automatisch nachlernen (braucht Leistungsmessung)', t: 'bool'},
+    {k: 'intake_pct', l: 'Zuluft an ab Abluft-Leistung (0 = Zuluft folgt Lüfterbedarf)', u: '%', step: 5}],
    hint: 'Die Abluft läuft immer mit Grundlast und steigt gleitend bis zum Maximum, je weiter Temperatur oder Feuchte über dem Soll liegen. Die Watt werden über die Kennlinie (Geräte → Abluft kalibrieren) in den Servo-Winkel umgerechnet. Ohne stufenlose Regelung läuft sie nur zwischen Grundlast und Maximum. Mit „Raumklima berücksichtigen“ dreht sie nicht sinnlos hoch, wenn die Raumluft selbst zu warm oder zu feucht ist (braucht einen Raum-Sensor). Die Gerätekopplung verhindert, dass Abluft und Entfeuchter, Befeuchter oder Heizung gegeneinander arbeiten – wie der Interlock bei Profi-Controllern. Sie greift für Geräte, die dieser Controller schaltet.'},
   grow: {title: 'Zyklus wechseln', fields: [
     {k: 'stage', l: 'Aktiver Zyklus', t: 'select', dyn: true},
@@ -304,6 +305,7 @@ function toast(msg, bad) { const t = $('#toast'); t.textContent = msg; t.classNa
 async function api(path, body, retried, method) {
   const opt = method ? {method} : body === undefined ? {} : {method: 'POST', body: JSON.stringify(body)};
   opt.headers = {'X-Token': token};
+  if (opt.method === 'POST') opt.headers['Content-Type'] = 'application/json';
   const r = await fetch(path, opt);
   if (r.status === 401 && !retried) {
     const t = prompt('Zugangs-Token eingeben:'); if (t === null) throw new Error('Token erforderlich');
@@ -406,7 +408,8 @@ function renderLight() {
 }
 function renderIrrMini() {
   const i = S.irrigation, f = t => t ? t.replace('T', ' ').slice(5, 16) : '–';
-  $('#irrMini').innerHTML = `<h3>${ico('drop')} Bewässerung</h3><div style="font-size:26px;font-weight:700;color:${i.running ? 'var(--hum)' : 'var(--text)'}">${i.running ? 'läuft …' : 'Bereit'}</div>
+  const st = !i.available ? 'Keine Pumpe' : i.running ? 'läuft …' : i.pump_mode === 'off' ? 'Pumpe aus' : !i.enabled ? 'Automatik aus' : 'Bereit';
+  $('#irrMini').innerHTML = `<h3>${ico('drop')} Bewässerung</h3><div style="font-size:26px;font-weight:700;color:${i.running ? 'var(--hum)' : i.available ? 'var(--text)' : 'var(--mute)'}">${st}</div>
     <div class="sub" style="margin-top:8px">Zuletzt: <b style="color:var(--text)">${f(i.last)}</b></div><div class="sub">Nächste: <b style="color:var(--text)">${f(i.next)}</b></div>
     <button class="sec" style="margin-top:12px" data-t="devices">Zu den Geräten</button>`;
 }
@@ -417,7 +420,7 @@ function renderHeader() {
   const n = S.alarms.length, p = $('#alarmPill');
   p.innerHTML = `<span class="d"></span>${n ? `${n} Alarm${n > 1 ? 'e' : ''}` : 'Alles in Ordnung'}`; p.className = 'chip ' + (n ? 'alarm' : 'good');
   const gr = S.grow, sp = $('#stagePill');
-  sp.innerHTML = gr.label ? `<span class="d" style="background:${gr.color}"></span>${esc(gr.label)}${gr.day ? ' · Tag ' + gr.day : ''}` : 'Kein Zyklus aktiv';
+  sp.innerHTML = gr.label ? `<span class="d" style="background:${gr.color}"></span>${esc(gr.label)}${gr.day ? ' · Tag ' + gr.day : gr.starts_in ? ' · startet in ' + gr.starts_in + ' T.' : ''}` : 'Kein Zyklus aktiv';
   $('#clock').textContent = S.time.slice(11, 16) + ' Uhr';
   $('#sideFoot').innerHTML = `<div style="color:var(--text);font-weight:600;margin-bottom:2px">${n ? '⚠ ' + n + ' Alarm' + (n > 1 ? 'e' : '') : '✓ Alles in Ordnung'}</div>Sensoren: ${S.stale ? 'veraltet' : 'aktuell'}`;
 }
@@ -523,9 +526,9 @@ function renderDevices() {
   const i = S.irrigation, f = t => t ? t.replace('T', ' ').slice(5, 16) : '–';
   $('#irrCard').innerHTML = `<div class="row"><div style="width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:var(--card2);color:var(--hum)">${ico('drop')}</div>
     <div class="sp"><div style="font-weight:600;font-size:16px">Bewässerung</div><div class="sub">Zuletzt <b style="color:var(--text)">${f(i.last)}</b> · Nächste <b style="color:var(--text)">${f(i.next)}</b>${i.running ? ' · <b style="color:var(--hum)">läuft …</b>' : ''}</div></div>
-    <button class="pri" id="waterBtn">Jetzt gießen</button></div>`;
-  $('#waterBtn').onclick = async () => { if (!confirm('Pumpe jetzt für ' + CFG.values.irrigation.duration_s + ' s starten?')) return;
-    try { S = await api('/api/irrigation/run', {}); renderAll(); toast('Bewässerung gestartet'); } catch (e) { toast(e.message, 1); } };
+    ${i.available ? '<button class="pri" id="waterBtn">Jetzt gießen</button>' : '<span class="sub">Keine Pumpe konfiguriert</span>'}</div>`;
+  if ($('#waterBtn')) $('#waterBtn').onclick = async () => { if (!confirm('Pumpe jetzt für ' + CFG.values.irrigation.duration_s + ' s starten?')) return;
+    try { S = await api('/api/irrigation/run', {}); renderAll(); toast('Bewässerung gestartet'); } catch (e) { toast(e.data?.error || e.message, 1); } };
 }
 $('#devices').onclick = async e => {
   const b = e.target.closest('button[data-m]'); if (!b) return;
@@ -607,8 +610,9 @@ function buildForm(sec) {
   box.innerHTML = `<h3>${F.title}</h3>${F.hint ? `<p class="hint">${F.hint}</p>` : ''}<form data-sec="${sec}" novalidate><div class="fgrid">${fields}${photo}</div>
     <div class="actions"><button class="pri" type="submit">Speichern</button><button class="sec" type="button" data-reset>Zurücksetzen</button></div></form>`;
   const form = $('form', box);
+  form.addEventListener('input', () => { form.dataset.dirty = '1'; });
   bindVis(form);
-  form.querySelector('[data-reset]').onclick = () => buildForm(sec);
+  form.querySelector('[data-reset]').onclick = () => buildForm(sec);  // verwirft ungespeicherte Änderungen
   form.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => {
     const [h, m] = (form.elements.on.value || '06:00').split(':').map(Number); form.elements.off.value = hm(h * 60 + m + +b.dataset.ph * 60);
   });
@@ -616,7 +620,7 @@ function buildForm(sec) {
     ev.preventDefault(); form.querySelectorAll('.fld').forEach(e => e.classList.remove('bad')); form.querySelectorAll('.err').forEach(e => e.textContent = '');
     const out = {};
     F.fields.forEach(f => { const el = form.elements[f.k], t = f.t || 'num'; out[f.k] = t === 'bool' ? el.checked : t === 'num' ? parseFloat(el.value) : el.value; });
-    try { const r = await api('/api/settings', {[sec]: out}); CFG.values = r.values; toast('Gespeichert ✓'); S = await api('/api/status'); renderAll(); }
+    try { const r = await api('/api/settings', {[sec]: out}); CFG.values = r.values; delete form.dataset.dirty; toast('Gespeichert ✓'); S = await api('/api/status'); renderAll(); }
     catch (e) {
       const errs = e.data?.errors || {}; let any = false;
       for (const [p, m] of Object.entries(errs)) { const row = form.querySelector(`[data-k="${p.split('.')[1]}"]`); if (row) { row.classList.add('bad'); row.querySelector('.err').textContent = m; any = true; } }
@@ -746,7 +750,12 @@ function renderAll(rebuild) {
 async function poll() {
   try {
     if (!CFG) CFG = await api('/api/settings');
-    S = await api('/api/status'); renderAll();
+    S = await api('/api/status');
+    if (CFG.rev !== S.rev) {
+      const editing = $('#dlg').open || [...document.querySelectorAll('form')].some(f => f.dataset.dirty);  // ungespeicherte Eingaben behalten
+      if (!editing) { const fresh = await api('/api/settings'); CFG = {...fresh, rev: S.rev}; renderAll(true); return; }
+    }
+    renderAll();
     if (!$('#tab-overview').classList.contains('on')) return;
     if (range === '1h') loadHistory(); else drawTimeline();
   } catch (e) { const p = $('#alarmPill'); p.textContent = '✖ keine Verbindung'; p.className = 'chip alarm'; }

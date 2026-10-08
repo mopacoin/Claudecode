@@ -52,6 +52,22 @@ def climate(cfg, day, temp, hum, cur, now, has_dehum=False):
     }
 
 
+def irrigation_next(cfg, last_run, now):
+    """Nächster Bewässerungszeitpunkt unter Beachtung des erlaubten Zeitfensters (oder None)."""
+    from datetime import timedelta
+    if not cfg.get("enabled", True):
+        return None
+    t = max(now, last_run + timedelta(minutes=cfg["interval_min"])) if last_run else now
+    lo, hi = cfg.get("from_hour", 0), cfg.get("to_hour", 24)
+    for _ in range(3):
+        if t.hour < lo:
+            return t.replace(hour=lo, minute=0, second=0, microsecond=0)
+        if t.hour < hi:
+            return t
+        t = (t + timedelta(days=1)).replace(hour=lo, minute=0, second=0, microsecond=0)
+    return t
+
+
 def irrigation_due(cfg, last_run, now):
     """last_run: datetime|None. Pumpe läuft cfg['duration_s'] Sekunden, wenn fällig."""
     if not cfg.get("enabled", True):

@@ -25,6 +25,7 @@ Läuft im Controller selbst (keine externen Bibliotheken, funktioniert offline),
   **Automatische Kennlinie:** Mit Leistungsmessung an der Abluft-Steckdose (Sensor `meross_power` mit `"prefix": "exhaust_"`)
   fährt „Automatisch kalibrieren“ 0–180° in 15°-Schritten ab (je 8 s einschwingen, Mittelwert aus 4 Messungen); im Betrieb lernt
   die Kennlinie nach demselben Prinzip weiter (geglättet, monoton steigend erzwungen).
+  **Zuluft:** läuft mit, sobald die Abluft mindestens `intake_pct` (40 %) ihrer Leistung erreicht (Unterdruck bleibt erhalten).
   **Gerätekopplung (Interlock):** Läuft der Entfeuchter, entfeuchtet die Abluft nicht mit (Stufe 2: hilft erst, wenn er nach
   20 min nicht hinterherkommt); Befeuchter/Heizung an → Abluft auf Grundlast; Temperatur hat Vorrang; sanfte Rampe (15 W/min). Gerät „Ein“ = Maximum, „Aus“ = Grundlast.
 - **Licht:** Zeitplan inkl. Schnellwahl 18/6, 20/4, 16/8, 12/12 · **Bewässerung:** Intervall, Dauer, Zeitfenster
@@ -40,6 +41,8 @@ Einstellungen werden serverseitig geprüft (Grenzen stehen in `settings.py`), so
 gespeichert; sie überschreiben die Werte aus `config.json`. Geräte/Pins/Zugangsdaten (`outputs`, `sensors`, `mqtt`)
 bleiben bewusst in `config.json`. Verlauf: 1 Wert/min in `data/log-*.csv`, die letzten 7 Tage werden beim Start geladen.
 Ohne `web.token` kann jeder im Netz Einstellungen ändern – bitte ein Token setzen (Header `X-Token`, die Oberfläche fragt danach).
+Schreibzugriffe brauchen `Content-Type: application/json` und werden von fremden Webseiten abgewiesen (Schutz gegen CSRF).
+Verlaufsdateien werden nach `history_days` (400) Tagen gelöscht, das Ereignisprotokoll bleibt unter ~1 MB.
 
 ## Sensoren (`config.json` → `sensors`)
 | driver | Sensor | Felder |
@@ -50,6 +53,9 @@ Ohne `web.token` kann jeder im Netz Einstellungen ändern – bitte ein Token se
 | `sim` | simuliert (Test) | – |
 
 `"prefix": "room_"` macht einen Sensor zum reinen Anzeige-Sensor (Raumklima), er regelt nicht.
+`"temp_offset"` / `"hum_offset"` gleichen Sensor-Abweichungen aus (z. B. `-0.4` °C, `+2` %).
+Werte, die länger als `sensor_timeout_s` (120 s) nicht aktualisiert wurden, verschwinden aus Anzeige und Regelung;
+fällt ein Zusatz-Sensor 5 min aus, gibt es einen Alarm.
 Govee-Sensoren testen: `.venv/bin/python -m growcontroller.govee_scan <MAC> …` zeigt Rohdaten und erkannte Werte.
 
 ## Ausgangs-Typen (`config.json` → `outputs`)
@@ -78,7 +84,8 @@ python3 -m unittest discover -s tests
 Auf dem Pi: `pip3 install -r requirements.txt` (nach Bedarf), in `config.json` den Sensor-Treiber
 (`dht22`, `bme280`, `ds18b20`) und die BCM-Pins setzen. Relaisboards sind meist `active_low: true`.
 
-Autostart: `deploy/growcontroller.service` nach `/etc/systemd/system/` kopieren, `systemctl enable --now growcontroller`.
+Autostart: `sudo sh deploy/install-service.sh` im Projektordner – richtet den Dienst für diesen Ordner und Benutzer ein
+(startet nach Netzwerk/Zeitabgleich) und zeigt die Zeitzone an, die für die Lichtzeiten stimmen muss.
 
 API: `GET /api/status|history?range=1h|6h|24h|7d|settings|events|export.csv`, `POST /api/settings` (`{"climate":{"temp_day":25}}`), `POST /api/output/<name>` (`{"mode":"auto|on|off"}`), `POST /api/presets` (anlegen/ändern), `POST /api/presets/<id>/apply`, `DELETE /api/presets/<id>`, `POST /api/calibration` (`{"points":[[0,20],[180,85]]}`), `POST /api/servo/<name>/angle` (`{"angle":90}`, Test), `POST /api/irrigation/run` (Schreibzugriffe mit Header `X-Token`, falls gesetzt).
 

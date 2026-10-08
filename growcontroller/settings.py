@@ -31,6 +31,7 @@ SPEC = {
         "room_aware": ("bool",), "room_margin": ("num", 0, 5),
         "interlock_dehum": ("bool",), "interlock_hum": ("bool",), "interlock_heat": ("bool",), "temp_priority": ("bool",),
         "dehum_assist_min": ("int", 0, 240), "ramp_w_min": ("num", 0, 500), "auto_learn": ("bool",),
+        "intake_pct": ("int", 0, 100),
     },
     "grow": {"stage": ("str", 40), "start_date": ("date",)},  # stage = Zyklus-ID (eingebaut oder eigen), "" = keiner
 }
@@ -45,7 +46,7 @@ DEFAULTS = {
     "exhaust": {"enabled": True, "min_w": 22, "max_w": 85, "max_w_night": 60, "temp_band": 3, "hum_band": 10, "deadband_deg": 3,
                 "room_aware": True, "room_margin": 0.5, "interlock_dehum": True, "interlock_hum": True,
                 "interlock_heat": True, "temp_priority": True, "dehum_assist_min": 20, "ramp_w_min": 15,
-                "auto_learn": True},
+                "auto_learn": True, "intake_pct": 40},
     "grow": {"stage": "", "start_date": ""},
 }
 

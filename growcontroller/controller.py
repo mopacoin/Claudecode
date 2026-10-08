@@ -377,8 +377,6 @@ class Controller:
                 "targets": {"temp": cl[f"temp_{p}"], "hum": cl[f"hum_{p}"], "vpd": self.cfg["climate"][f"vpd_{p}"],
                             "control": cl["control"]},
                 "exhaust": {"notes": self.exhaust_notes},
-                "sensor_info": {n: {"prefix": p, "error": getattr(s, "error", None), **getattr(s, "meta", {})}
-                                for n, (p, s) in self.sensors.items() if getattr(s, "meta", None)},
                 "stats": self.stats(), "alarms": [{"id": k, **v} for k, v in self.alarms.items()],
                 "grow": self._grow_status(g, gday),
                 "irrigation": {"last": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),

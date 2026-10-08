@@ -41,9 +41,17 @@ Ohne `web.token` kann jeder im Netz Einstellungen ändern – bitte ein Token se
 |---|---|---|
 | `govee` | Govee-Thermo-Hygrometer per Bluetooth (H5072/74/75, H5100–05, H5174/77, H5179), Paket `bleak` | `mac` |
 | `bme280` / `dht22` / `ds18b20` | kabelgebunden | siehe `sensors.py` |
+| `mqtt` | Werte aus MQTT-Topics (Zahl, true/false oder JSON mit `json_key`), Paket `paho-mqtt` | `topics` `{name: topic}`, `host`, `port`, `username`, `password` |
 | `sim` | simuliert (Test) | – |
 
 `"prefix": "room_"` macht einen Sensor zum reinen Anzeige-Sensor (Raumklima), er regelt nicht.
+**Spider Farmer GGS-Controller:** Ein ESP32 mit der Firmware aus
+[cr0ssn0tice/Spider-Farmer-GGS-Controller-MQTT](https://github.com/cr0ssn0tice/Spider-Farmer-GGS-Controller-MQTT) liest den
+Controller per Bluetooth und sendet an den Mosquitto des Pi (`grow/GGS/...`). Eintrag in `sensors`:
+`"spiderfarmer": {"driver": "mqtt", "prefix": "sf_", "topics": {"temp": "grow/GGS/sensor/temp", "hum": "grow/GGS/sensor/humi",
+"vpd": "grow/GGS/sensor/vpd", "light": "grow/GGS/light/level", "light_on": "grow/GGS/light/on", "fan": "grow/GGS/fan/level",
+"fan_on": "grow/GGS/fan/on", "blower": "grow/GGS/blower/level"}}` – das Dashboard zeigt eine Karte „Spider Farmer GGS“.
+
 Govee-Sensoren testen: `.venv/bin/python -m growcontroller.govee_scan <MAC> …` zeigt Rohdaten und erkannte Werte.
 
 ## Ausgangs-Typen (`config.json` → `outputs`)

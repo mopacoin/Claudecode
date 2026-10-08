@@ -178,6 +178,7 @@ tr+tr td{border-top:1px solid var(--line)}
             <div class="scale"><span>0</span><span>0,4</span><span>0,8</span><span>1,2</span><span>1,6</span><span>2,0 kPa</span></div>
             <div class="scale" style="margin-top:6px"><span></span><span>Keimling</span><span>Wachstum</span><span>Blüte</span><span>Spätblüte</span><span></span></div></div>
           <div class="card" id="roomCard" style="display:none"></div>
+          <div class="card" id="sfCard" style="display:none"></div>
           <div class="card" id="irrMini"></div>
         </div>
         <div class="card mt">
@@ -365,7 +366,17 @@ function renderOverview() {
   $('#zmark').style.left = Math.min(100, (S.vpd ?? 0) / 2 * 100) + '%';
   $('#banner').innerHTML = (S.alarms.length ? `<div class="banner">${ico('bell')}<div>${S.alarms.map(a => `<div><b>${esc(a.msg)}</b></div>`).join('')}</div></div>` : '')
     + (S.exhaust?.notes || []).map(n => `<div class="banner info">${ico(n.key === 'temp' ? 'thermo' : 'drops')}<div>${roomNote(n)}</div></div>`).join('');
-  renderLight(); renderIrrMini(); renderRoom();
+  renderLight(); renderIrrMini(); renderRoom(); renderSF();
+}
+// Spider Farmer GGS (über ESP32-BLE-Brücke + MQTT, Sensor-Prefix "sf_")
+const SF_FIELDS = [['temp', 'Temperatur', '°C'], ['hum', 'Luftfeuchte', '%'], ['vpd', 'VPD', 'kPa'], ['light', 'Licht', '%'],
+  ['fan', 'Umluft', 'Stufe'], ['blower', 'Abluft', 'Stufe']];
+function renderSF() {
+  const r = S.readings, card = $('#sfCard'), has = Object.keys(r).some(k => k.startsWith('sf_'));
+  card.style.display = has ? '' : 'none'; if (!has) return;
+  const v = k => r['sf_' + k], on = k => v(k + '_on') === 0 ? ' <span class="sub">(aus)</span>' : '';
+  card.innerHTML = `<h3>${ico('leaf')} Spider Farmer GGS</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px">${SF_FIELDS.filter(([k]) => v(k) != null)
+    .map(([k, l, u]) => `<div><div class="sub">${l}</div><b style="font-size:18px">${v(k)}</b> <span class="sub">${u}</span>${on(k)}</div>`).join('')}</div>`;
 }
 function roomNote(n) {
   const t = S.targets;

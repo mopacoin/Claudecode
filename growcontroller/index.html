@@ -484,13 +484,30 @@ $('#chart').onmouseleave = () => { hover = -1; $('#tip').style.display = 'none';
 addEventListener('resize', () => S && drawAll());
 
 // ---- Geräte ----
+// Stufenloser Servo: angle_on/angle_off/payload/retain sind ohne Bedeutung (Winkel kommt aus der Kennlinie)
+const PROP_HIDE = ['type', 'angle_on', 'angle_off', 'payload', 'payload_on', 'payload_off', 'retain', 'proportional'];
+function infoText(o) {
+  if (!o.proportional) return Object.entries(o.info).filter(([k]) => k !== 'type').map(([k, v]) => `${k}: ${v}`).join(' · ');
+  const rest = Object.entries(o.info).filter(([k]) => !PROP_HIDE.includes(k)).map(([k, v]) => `${k}: ${v}`);
+  return [...rest, `stufenlos über Kennlinie (${CFG.calibration.length} Lernpunkte)`].join(' · ');
+}
+function exShare(w) {
+  const ex = CFG.values.exhaust, top = S.is_day ? ex.max_w : ex.max_w_night;
+  return w == null || top <= ex.min_w ? 0 : Math.max(0, Math.min(1, (w - ex.min_w) / (top - ex.min_w)));
+}
+function stateText(o) {
+  if (!o.proportional) return o.state ? 'Läuft' : 'Aus';
+  if (o.mode === 'manual') return '<span style="color:var(--warn)">Kalibrier-Test</span>';
+  if (o.watts == null) return '–';
+  return o.watts <= CFG.values.exhaust.min_w + 0.5 ? 'Grundlast' : (S.is_day ? o.watts >= CFG.values.exhaust.max_w - 0.5 : o.watts >= CFG.values.exhaust.max_w_night - 0.5) ? 'Maximum' : 'Regelt';
+}
 function renderDevices() {
   $('#devices').innerHTML = Object.entries(S.outputs).map(([n, o]) => {
-    const info = Object.entries(o.info).filter(([k]) => k !== 'type').map(([k, v]) => `${k}: ${v}`).join(' · '), bad = o.ok === false;
+    const info = infoText(o), bad = o.ok === false;
     return `<div class="card dev ${o.state ? 'on' : ''} ${bad ? 'err' : ''}"><div class="hd"><div class="ib">${ico(ROLE_ICO[o.role] || 'plug')}</div>
-      <div class="sp"><div class="nm">${esc(LABEL[n] || n)}</div><div class="st">${bad ? '<span style="color:var(--bad)">nicht erreichbar</span>' : o.state ? 'Läuft' : 'Aus'} · ${esc(o.info.type)}</div></div></div>
-      ${o.proportional && o.watts != null ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${Math.round(o.watts)} W</b><span class="sub">${o.angle}°${o.mode === 'manual' ? ' · Kalibrier-Test' : ''}</span></div>
-        <div class="lvl"><i style="width:${o.angle / 1.8}%"></i></div>` : ''}
+      <div class="sp"><div class="nm">${esc(LABEL[n] || n)}</div><div class="st">${bad ? '<span style="color:var(--bad)">nicht erreichbar</span>' : stateText(o)} · ${esc(o.info.type)}</div></div></div>
+      ${o.proportional && o.watts != null ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${Math.round(o.watts)} W</b><span class="sub">${o.angle}° Servo · ${Math.round(exShare(o.watts) * 100)} % Leistung</span></div>
+        <div class="lvl"><i style="width:${exShare(o.watts) * 100}%"></i></div>` : ''}
       <div class="info">${esc(info)}</div>
       <div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${{auto: 'Auto', on: 'Ein', off: 'Aus'}[m]}</button>`).join('')}</div></div>`;
   }).join('');
@@ -686,7 +703,7 @@ function renderSystem() {
     <div class="sub" style="margin-top:6px">Sensordaten <b style="color:var(--${S.stale ? 'bad' : 'ok'})">${S.stale ? 'veraltet' : 'aktuell'}</b></div>`;
   $('#hw').innerHTML = '<tr><th>Gerät</th><th>Typ</th><th>Rolle</th><th>Status</th><th>Details</th></tr>' + Object.entries(S.outputs).map(([n, o]) =>
     `<tr><td><b>${esc(LABEL[n] || n)}</b></td><td>${esc(o.info.type)}</td><td>${esc(o.role)}</td><td style="color:var(--${o.ok === false ? 'bad' : 'ok'})">${o.ok === false ? 'nicht erreichbar' : 'OK'}</td>
-    <td class="sub">${esc(Object.entries(o.info).filter(([k]) => k !== 'type').map(([k, v]) => k + ': ' + v).join(' · '))}</td></tr>`).join('');
+    <td class="sub">${esc(infoText(o))}</td></tr>`).join('');
   $('#authHint').textContent = CFG.auth ? 'Änderungen sind per Token geschützt.' : 'Kein Token gesetzt – jeder im Netzwerk kann Einstellungen ändern. Setze „web.token“ in config.json.';
 }
 $('#exports').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-x="${r}">⬇ ${l}</button>`).join('');

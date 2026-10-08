@@ -124,3 +124,55 @@ class TestCycles(unittest.TestCase):
             c._advance(datetime(2026, 1, 9, 12, 1))
             self.assertEqual(c.cfg["grow"]["stage"], "veg"); self.assertEqual(c.cfg["grow"]["start_date"], "2026-01-08")
             c.shutdown()
+
+
+class TestExhaustServo(unittest.TestCase):
+    CAL = [[0, 20], [90, 25], [180, 85]]
+
+    def test_curve(self):
+        self.assertEqual(rules.watts_for_angle(self.CAL, 45), 22.5)
+        self.assertEqual(rules.watts_for_angle(self.CAL, 135), 55)
+        self.assertEqual(rules.angle_for_watts(self.CAL, 55), 135)
+        self.assertEqual(rules.angle_for_watts(self.CAL, 10), 0)
+        self.assertEqual(rules.angle_for_watts(self.CAL, 999), 180)
+        # flacher Bereich 0–90°: kleine Leistungsänderung = großer Winkel
+        self.assertEqual(rules.angle_for_watts(self.CAL, 22.5), 45)
+
+    def test_exhaust_watts(self):
+        ex = settings.DEFAULTS["exhaust"]
+        self.assertEqual(rules.exhaust_watts(ex, True, 24, 50, 25, 60), ex["min_w"])  # alles unter Soll
+        self.assertEqual(rules.exhaust_watts(ex, True, 28, 50, 25, 60), ex["max_w"])  # 3 °C drüber = Maximum
+        mid = rules.exhaust_watts(ex, True, 26.5, 50, 25, 60)
+        self.assertAlmostEqual(mid, (ex["min_w"] + ex["max_w"]) / 2, delta=0.1)
+        self.assertEqual(rules.exhaust_watts(ex, False, 30, 50, 25, 60), ex["max_w_night"])
+
+    def test_validate_cal(self):
+        pts, err = settings.validate_cal([[180, 85], [0, 20], [90, 25]])
+        self.assertIsNone(err); self.assertEqual(pts[0], [0, 20.0])
+        self.assertTrue(settings.validate_cal([[0, 30], [90, 20]])[1])  # fallend
+        self.assertTrue(settings.validate_cal([[0, 20]])[1])
+        self.assertTrue(settings.validate_cal([[200, 20], [0, 10]])[1])
+
+    def test_controller_servo(self):
+        sent = []
+        with tempfile.TemporaryDirectory() as d:
+            c = make(d)
+            from growcontroller import outputs
+
+            class Rec:
+                healthy = True
+                def set(self, v): sent.append(v)
+                def close(self): pass
+            c.outs["vent"] = outputs.Output("vent", Rec(), role="vent", proportional=True)
+            c._prev_state["vent"] = False
+            c.update_settings({"climate": {"temp_day": 25, "temp_night": 25}})
+            c.last_ok = time.monotonic(); c.readings = {"temp": 26.5, "hum": 50.0}
+            c.read_sensors = lambda: None
+            c.step(datetime(2026, 1, 1, 12, 0))
+            self.assertEqual(c.outs["vent"].angle, round(rules.angle_for_watts(settings.DEFAULT_CAL, c.outs["vent"].watts)))
+            self.assertTrue(isinstance(sent[-1], int) and 90 < sent[-1] < 180)
+            c.servo_manual("vent", 45)
+            self.assertEqual(sent[-1], 45); self.assertEqual(c.outs["vent"].watts, 22.5)
+            pts, err = c.set_calibration([[0, 20], [120, 40], [180, 85]]); self.assertIsNone(err)
+            c.shutdown()
+            c2 = make(d); self.assertEqual(c2.cal[1], [120, 40.0]); c2.shutdown()

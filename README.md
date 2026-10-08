@@ -17,6 +17,10 @@ Läuft im Controller selbst (keine externen Bibliotheken, funktioniert offline),
 - **Geräte:** je Gerät Auto/Ein/Aus (bleibt nach Neustart erhalten), Erreichbarkeit, „Jetzt gießen“
 - **Klima:** Regelmodus Temperatur+Feuchte **oder VPD** (Ziel-VPD wird bei aktueller Temperatur in eine Feuchte-Vorgabe
   umgerechnet, mit Blatt-Temperaturversatz), Tag/Nacht-Sollwerte, Hysteresen, Lüfter-Grundlauf
+- **Abluft stufenlos (Servo):** Grundlast bis Maximum (Tag/Nacht getrennt), gleitend nach Temperatur-/Feuchte-Abweichung.
+  Die Watt werden über eine **Kennlinie aus Lernpunkten** (Winkel → gemessene Watt, linear interpoliert) in den Servo-Winkel
+  umgerechnet. Kalibrieren unter Geräte → „Abluft kalibrieren“: Winkel anfahren, Leistung eintragen, speichern.
+  Startwerte: 0° = 20 W, 90° = 25 W, 180° = 85 W. Gerät „Ein“ = Maximum, „Aus“ = Grundlast.
 - **Licht:** Zeitplan inkl. Schnellwahl 18/6, 20/4, 16/8, 12/12 · **Bewässerung:** Intervall, Dauer, Zeitfenster
 - **Alarme:** Grenzwerte mit Verzögerung; Sensor-/Geräteausfall; aktive Alarme im Kopf der Seite
 - **Zyklen:** Wachstumsphasen mit Tageszähler und Fortschrittsbalken. Zu den eingebauten Richtwerten (Keimling, Wachstum, Blüte,
@@ -59,6 +63,6 @@ Auf dem Pi: `pip3 install -r requirements.txt` (nach Bedarf), in `config.json` d
 
 Autostart: `deploy/growcontroller.service` nach `/etc/systemd/system/` kopieren, `systemctl enable --now growcontroller`.
 
-API: `GET /api/status|history?range=1h|6h|24h|7d|settings|events|export.csv`, `POST /api/settings` (`{"climate":{"temp_day":25}}`), `POST /api/output/<name>` (`{"mode":"auto|on|off"}`), `POST /api/presets` (anlegen/ändern), `POST /api/presets/<id>/apply`, `DELETE /api/presets/<id>`, `POST /api/irrigation/run` (Schreibzugriffe mit Header `X-Token`, falls gesetzt).
+API: `GET /api/status|history?range=1h|6h|24h|7d|settings|events|export.csv`, `POST /api/settings` (`{"climate":{"temp_day":25}}`), `POST /api/output/<name>` (`{"mode":"auto|on|off"}`), `POST /api/presets` (anlegen/ändern), `POST /api/presets/<id>/apply`, `DELETE /api/presets/<id>`, `POST /api/calibration` (`{"points":[[0,20],[180,85]]}`), `POST /api/servo/<name>/angle` (`{"angle":90}`, Test), `POST /api/irrigation/run` (Schreibzugriffe mit Header `X-Token`, falls gesetzt).
 
 **Sicherheit:** Netzspannung nur mit geeigneten Relais/Absicherung (FI, Sicherung, Übertemperaturschutz in Hardware) – Software ersetzt keinen Hardware-Schutz.

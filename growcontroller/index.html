@@ -122,6 +122,12 @@ dialog::backdrop{background:rgba(0,0,0,.62);backdrop-filter:blur(5px)}
 .sw{display:flex;gap:9px;flex-wrap:wrap;padding:4px 0}.sw button{width:32px;height:32px;border-radius:50%;border:2px solid transparent;background:var(--c);cursor:pointer;box-shadow:inset 0 0 0 3px var(--bg)}
 .sw button.on{border-color:var(--text)}
 .sec-t{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--acc);margin:22px 0 4px;font-weight:600}
+/* Abluft-Kalibrierung */
+.lvl{height:6px;border-radius:3px;background:var(--card2);margin:10px 0 2px;overflow:hidden}.lvl i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .5s}
+.calgrid{display:grid;gap:22px;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)}@media(max-width:800px){.calgrid{grid-template-columns:1fr}}
+.calsvg{width:100%;height:auto}.calsvg text{font-size:10px;fill:var(--mute)}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.pts td{padding:6px 8px}.pts button{background:none;border:0;color:var(--bad);cursor:pointer;font-size:15px}
 /* Tabellen */
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:9px 10px;text-align:left;vertical-align:top}
 th{color:var(--mute);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--line)}
@@ -182,10 +188,11 @@ tr+tr td{border-top:1px solid var(--line)}
       <section class="tab" id="tab-devices">
         <p class="hint"><b>Auto</b> = Regelung entscheidet · <b>Ein / Aus</b> = manuell erzwungen (bleibt nach einem Neustart erhalten).</p>
         <div class="grid g4" id="devices"></div>
+        <div class="card mt" id="calCard" style="display:none"></div>
         <div class="card mt" id="irrCard"></div>
       </section>
 
-      <section class="tab" id="tab-climate"><div id="f-climate" class="card"></div></section>
+      <section class="tab" id="tab-climate"><div id="f-climate" class="card"></div><div id="f-exhaust" class="card mt"></div></section>
       <section class="tab" id="tab-light"><div id="f-light" class="card"></div></section>
       <section class="tab" id="tab-irrigation"><div id="f-irrigation" class="card"></div></section>
       <section class="tab" id="tab-alarms">
@@ -268,6 +275,12 @@ const FORMS = {
     {k: 'enabled', l: 'Alarme aktiv', t: 'bool'}, {k: 'temp_min', l: 'Temperatur min', u: '°C', step: .5}, {k: 'temp_max', l: 'Temperatur max', u: '°C', step: .5},
     {k: 'hum_min', l: 'Luftfeuchte min', u: '%', step: 1}, {k: 'hum_max', l: 'Luftfeuchte max', u: '%', step: 1}, {k: 'delay_min', l: 'Verzögerung bis Alarm', u: 'min', step: 1}],
    hint: 'Ein Alarm löst erst aus, wenn die Grenze so lange verletzt bleibt. Ausfall von Sensor oder Gerät meldet sich nach 60 s.'},
+  exhaust: {title: 'Abluft (stufenlos über Servo)', fields: [
+    {k: 'enabled', l: 'Stufenlose Regelung', t: 'bool'}, {k: 'min_w', l: 'Grundlast', u: 'W', step: 1},
+    {k: 'max_w', l: 'Maximum Tag', u: 'W', step: 1}, {k: 'max_w_night', l: 'Maximum Nacht (leiser)', u: 'W', step: 1},
+    {k: 'temp_band', l: 'Volle Leistung ab Temperatur Soll +', u: '°C', step: .5}, {k: 'hum_band', l: 'Volle Leistung ab Feuchte Soll +', u: '%', step: 1},
+    {k: 'deadband_deg', l: 'Servo erst bewegen ab', u: '° Änderung', step: 1}],
+   hint: 'Die Abluft läuft immer mit Grundlast und steigt gleitend bis zum Maximum, je weiter Temperatur oder Feuchte über dem Soll liegen. Die Watt werden über die Kennlinie (Geräte → Abluft kalibrieren) in den Servo-Winkel umgerechnet. Ohne stufenlose Regelung läuft sie nur zwischen Grundlast und Maximum.'},
   grow: {title: 'Zyklus wechseln', fields: [
     {k: 'stage', l: 'Aktiver Zyklus', t: 'select', dyn: true},
     {k: 'start_date', l: 'Start des Zyklus', t: 'date'}]},
@@ -450,9 +463,12 @@ function renderDevices() {
     const info = Object.entries(o.info).filter(([k]) => k !== 'type').map(([k, v]) => `${k}: ${v}`).join(' · '), bad = o.ok === false;
     return `<div class="card dev ${o.state ? 'on' : ''} ${bad ? 'err' : ''}"><div class="hd"><div class="ib">${ico(ROLE_ICO[o.role] || 'plug')}</div>
       <div class="sp"><div class="nm">${esc(LABEL[n] || n)}</div><div class="st">${bad ? '<span style="color:var(--bad)">nicht erreichbar</span>' : o.state ? 'Läuft' : 'Aus'} · ${esc(o.info.type)}</div></div></div>
+      ${o.proportional && o.watts != null ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${Math.round(o.watts)} W</b><span class="sub">${o.angle}°${o.mode === 'manual' ? ' · Kalibrier-Test' : ''}</span></div>
+        <div class="lvl"><i style="width:${o.angle / 1.8}%"></i></div>` : ''}
       <div class="info">${esc(info)}</div>
       <div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${{auto: 'Auto', on: 'Ein', off: 'Aus'}[m]}</button>`).join('')}</div></div>`;
   }).join('');
+  renderCal();
   const i = S.irrigation, f = t => t ? t.replace('T', ' ').slice(5, 16) : '–';
   $('#irrCard').innerHTML = `<div class="row"><div style="width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:var(--card2);color:var(--hum)">${ico('drop')}</div>
     <div class="sp"><div style="font-weight:600;font-size:16px">Bewässerung</div><div class="sub">Zuletzt <b style="color:var(--text)">${f(i.last)}</b> · Nächste <b style="color:var(--text)">${f(i.next)}</b>${i.running ? ' · <b style="color:var(--hum)">läuft …</b>' : ''}</div></div>
@@ -464,6 +480,46 @@ $('#devices').onclick = async e => {
   const b = e.target.closest('button[data-m]'); if (!b) return;
   try { S = await api('/api/output/' + encodeURIComponent(b.dataset.n), {mode: b.dataset.m}); renderAll(); } catch (er) { toast(er.message, 1); }
 };
+
+// ---- Abluft-Kalibrierung ----
+let calBuilt = '';
+function servoName() { return Object.entries(S.outputs).find(([, o]) => o.proportional)?.[0]; }
+function calCurve() {
+  const pts = CFG.calibration, o = S.outputs[servoName()] || {}, top = Math.max(...pts.map(p => p[1])) * 1.15 || 100;
+  const X = a => 34 + a / 180 * 256, Y = w => 150 - w / top * 136;
+  const grid = [0, .25, .5, .75, 1].map(f => `<line x1="34" x2="290" y1="${Y(top * f)}" y2="${Y(top * f)}" stroke="currentColor" opacity=".08"/><text x="28" y="${Y(top * f) + 3}" text-anchor="end">${Math.round(top * f)}</text>`).join('');
+  const xl = [0, 45, 90, 135, 180].map(a => `<text x="${X(a)}" y="166" text-anchor="middle">${a}°</text>`).join('');
+  const line = pts.map(p => `${X(p[0])},${Y(p[1])}`).join(' ');
+  const cur = o.angle != null ? `<line x1="${X(o.angle)}" x2="${X(o.angle)}" y1="12" y2="150" stroke="var(--warn)" stroke-dasharray="4 3"/><circle cx="${X(o.angle)}" cy="${Y(o.watts ?? 0)}" r="5" fill="var(--warn)"/>` : '';
+  return `<svg class="calsvg" viewBox="0 0 300 172" style="color:var(--text)">${grid}${xl}<polygon points="${X(pts[0][0])},150 ${line} ${X(pts[pts.length - 1][0])},150" fill="var(--acc)" opacity=".12"/>
+    <polyline points="${line}" fill="none" stroke="var(--acc)" stroke-width="2.5" stroke-linejoin="round"/>${pts.map(p => `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="4.5" fill="var(--bg)" stroke="var(--acc)" stroke-width="2.5"/>`).join('')}${cur}</svg>`;
+}
+function renderCal() {
+  const n = servoName(), card = $('#calCard'); card.style.display = n ? '' : 'none'; if (!n) return;
+  const key = JSON.stringify(CFG.calibration);
+  if (calBuilt !== key) {  // Aufbau nur bei Änderung – sonst würden Eingaben beim 5-s-Refresh verloren gehen
+    calBuilt = key;
+    card.innerHTML = `<h3>${ico('out')} Abluft kalibrieren</h3><p class="hint">Servo auf einen Winkel fahren, Leistung am Messgerät ablesen und als Lernpunkt speichern. Je mehr Punkte, besonders im steilen Bereich, desto genauer trifft die Regelung die gewünschten Watt. Danach „Zurück auf Automatik“.</p>
+      <div class="calgrid"><div><div id="calSvg"></div><div class="sub" id="calLive" style="margin-top:6px"></div></div>
+      <div><div class="fld"><label>Servo-Winkel</label><div class="row"><input type="range" id="calAng" min="0" max="180" step="1" value="${S.outputs[n].angle ?? 90}" style="flex:1"><div class="ig" style="width:96px"><input type="number" id="calAngN" min="0" max="180" value="${S.outputs[n].angle ?? 90}"><span>°</span></div></div></div>
+        <button class="sec" id="calGo" style="width:100%">Servo auf diesen Winkel fahren</button>
+        <div class="fld" style="margin-top:8px"><label>Gemessene Leistung bei diesem Winkel</label><div class="ig"><input type="number" id="calW" min="0" max="1000" step="0.5" placeholder="z. B. 47"><span>W</span></div><div class="err" id="calErr"></div></div>
+        <div class="row"><button class="pri" id="calSave" style="flex:1">Lernpunkt speichern</button><button class="sec" id="calAuto">Zurück auf Automatik</button></div>
+        <table class="pts mt"><tr><th>Winkel</th><th>Leistung</th><th></th></tr>${CFG.calibration.map((p, i) => `<tr><td>${p[0]}°</td><td>${p[1]} W</td><td style="text-align:right">${CFG.calibration.length > 2 ? `<button data-del="${i}" title="Lernpunkt löschen">✕</button>` : ''}</td></tr>`).join('')}</table></div></div>`;
+    const a = $('#calAng'), an = $('#calAngN');
+    a.oninput = () => an.value = a.value; an.oninput = () => a.value = an.value;
+    const saveCal = async pts => { try { const r = await api('/api/calibration', {points: pts}); CFG.calibration = r.calibration; renderCal(); toast('Kennlinie gespeichert ✓'); }
+      catch (e) { $('#calErr').textContent = e.data?.error || e.message; } };
+    $('#calGo').onclick = async () => { try { S = await api(`/api/servo/${encodeURIComponent(n)}/angle`, {angle: +an.value}); renderAll(); toast(`Servo → ${an.value}°`); } catch (e) { toast(e.data?.error || e.message, 1); } };
+    $('#calSave').onclick = () => { const w = parseFloat($('#calW').value); if (!(w >= 0)) { $('#calErr').textContent = 'Bitte gemessene Watt eintragen'; return; }
+      saveCal([...CFG.calibration.filter(p => p[0] !== +an.value), [+an.value, w]]); };
+    $('#calAuto').onclick = async () => { try { S = await api('/api/output/' + encodeURIComponent(n), {mode: 'auto'}); renderAll(); toast('Abluft wieder auf Automatik'); } catch (e) { toast(e.message, 1); } };
+    card.querySelectorAll('[data-del]').forEach(b => b.onclick = () => saveCal(CFG.calibration.filter((_, i) => i !== +b.dataset.del)));
+  }
+  const o = S.outputs[n];
+  $('#calSvg').innerHTML = calCurve();
+  $('#calLive').innerHTML = o.angle != null ? `Aktuell <b style="color:var(--text)">${o.angle}°</b> ≈ <b style="color:var(--text)">${Math.round(o.watts)} W</b> laut Kennlinie · Modus ${o.mode === 'manual' ? '<b style="color:var(--warn)">Kalibrier-Test</b>' : o.mode}` : '';
+}
 
 // ---- Einstellungsformulare ----
 function fieldHTML(sec, f, v, ns) {

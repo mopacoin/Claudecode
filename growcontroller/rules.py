@@ -40,13 +40,13 @@ def climate(cfg, day, temp, hum, cur, now, has_dehum=False):
     p = "day" if day else "night"
     tt, th = cfg[f"temp_{p}"], cfg["temp_hyst"]
     ht, hh = cfg[f"hum_{p}"], cfg["hum_hyst"]
-    fan_hot = hysteresis_high(temp, cur["fan"], tt, tt + th)
-    fan_wet = not has_dehum and hysteresis_high(hum, cur["fan"], ht, ht + hh)
+    fan_hot = hysteresis_high(temp, cur.get("fan", False), tt, tt + th)
+    fan_wet = not has_dehum and hysteresis_high(hum, cur.get("fan", False), ht, ht + hh)
     dehum = hysteresis_high(hum, cur.get("dehumidifier", False), ht, ht + hh)
     fan_cycle = now.minute < cfg.get("fan_min_per_hour", 0)
     return {
-        "heater": hysteresis(temp, cur["heater"], tt - th, tt),
-        "humidifier": hysteresis(hum, cur["humidifier"], ht - hh, ht) and not (fan_hot or fan_wet or dehum),
+        "heater": hysteresis(temp, cur.get("heater", False), tt - th, tt),
+        "humidifier": hysteresis(hum, cur.get("humidifier", False), ht - hh, ht) and not (fan_hot or fan_wet or dehum),
         "dehumidifier": dehum,
         "fan": fan_hot or fan_wet or fan_cycle,
     }
@@ -82,3 +82,37 @@ def rh_for_vpd(temp, target, leaf_offset=-2.0):
 
 def rh_delta_for_vpd(temp, delta):
     return max(1.0, round(delta / svp(temp) * 100, 1))
+
+
+def _clamp(x):
+    return max(0.0, min(1.0, x))
+
+
+def watts_for_angle(cal, angle):
+    """Lineare Interpolation der Kennlinie [[winkel, watt], …] (nach Winkel sortiert)."""
+    if angle <= cal[0][0]:
+        return cal[0][1]
+    for (a0, w0), (a1, w1) in zip(cal, cal[1:]):
+        if angle <= a1:
+            return w0 + (w1 - w0) * (angle - a0) / (a1 - a0)
+    return cal[-1][1]
+
+
+def angle_for_watts(cal, watts):
+    """Umkehrung der Kennlinie: kleinster Winkel, der die gewünschte Leistung erreicht."""
+    if watts <= cal[0][1]:
+        return cal[0][0]
+    for (a0, w0), (a1, w1) in zip(cal, cal[1:]):
+        if watts <= w1:
+            return a1 if w1 == w0 else a0 + (a1 - a0) * (watts - w0) / (w1 - w0)
+    return cal[-1][0]
+
+
+def exhaust_watts(cfg, day, temp, hum, t_target, h_target):
+    """Grundlast + Anteil bis Maximum, je weiter Temperatur oder Feuchte über dem Soll liegen."""
+    lo, hi = cfg["min_w"], cfg["max_w"] if day else cfg["max_w_night"]
+    if temp is None and hum is None:
+        return hi  # ohne Messwerte lieber lüften
+    ft = _clamp((temp - t_target) / cfg["temp_band"]) if temp is not None else 0
+    fh = _clamp((hum - h_target) / cfg["hum_band"]) if hum is not None else 0
+    return round(lo + (max(hi, lo) - lo) * max(ft, fh), 1)

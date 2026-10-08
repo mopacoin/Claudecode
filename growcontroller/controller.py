@@ -36,6 +36,7 @@ class Controller:
         for n, m in self.saved.get("modes", {}).items():
             if n in self.outs and m in ("auto", "on", "off"):
                 self.outs[n].mode = m
+        self.cal = settings.validate_cal(self.saved.get("servo_cal"))[0] or settings.DEFAULT_CAL
         self.readings = {}
         self.last_ok = None
         self.live = deque(maxlen=720)            # letzte Stunde im Regeltakt
@@ -138,14 +139,59 @@ class Controller:
                                           self.readings.get("hum"), cur, now, self.has_dehum))
             want["pump"] = self._pump(now)
             want["vent"] = want["intake"] = want["fan"]  # Abluft-Klappe und Zuluft folgen dem Lüfterbedarf
+            ex_w = None
+            if not self.stale():
+                p = "day" if day else "night"
+                cl = self.effective_climate(day)
+                ex_w = rules.exhaust_watts(self.cfg["exhaust"], day, self.readings.get("temp"), self.readings.get("hum"),
+                                           cl[f"temp_{p}"], cl[f"hum_{p}"])
             for n, o in self.outs.items():
-                o.apply(want.get(o.role, False))
+                if o.proportional:
+                    self._apply_servo(o, want, day, ex_w)
+                else:
+                    o.apply(want.get(o.role, False))
                 if o.state != self._prev_state[n]:
                     self._prev_state[n] = o.state
                     self.event("output", f"{n}: {'EIN' if o.state else 'AUS'}")
             self._check_alarms()
             self._record(now)
             self._advance(now)
+
+    def _apply_servo(self, o, want, day, ex_w):
+        ex = self.cfg["exhaust"]
+        top = ex["max_w"] if day else ex["max_w_night"]
+        if o.mode == "manual" and o.manual_angle is not None:  # Kalibrier-Test
+            o.apply_level(o.manual_angle, round(rules.watts_for_angle(self.cal, o.manual_angle), 1), 0)
+        else:
+            if o.mode == "on":
+                w = top
+            elif o.mode == "off":
+                w = ex["min_w"]
+            elif not ex["enabled"]:  # nur Ein/Aus: folgt dem Lüfterbedarf
+                w = top if want.get(o.role) else ex["min_w"]
+            else:
+                w = top if ex_w is None else ex_w  # ohne Messwerte: lüften
+            o.apply_level(rules.angle_for_watts(self.cal, w), round(w, 1), ex["deadband_deg"])
+        o.state = o.watts is not None and o.watts > ex["min_w"] + 0.5
+
+    def set_calibration(self, points):
+        pts, err = settings.validate_cal(points)
+        if err:
+            return None, err
+        with self.lock:
+            self.cal = pts
+            self.saved["servo_cal"] = pts
+            settings.save(self._p("settings.json"), self.saved)
+            self.event("settings", "Servo-Kennlinie: " + ", ".join(f"{a}°={w:g} W" for a, w in pts))
+        return pts, None
+
+    def servo_manual(self, name, angle):
+        o = self.outs.get(name)
+        if not o or not o.proportional or not isinstance(angle, (int, float)) or isinstance(angle, bool) or not 0 <= angle <= 180:
+            raise ValueError("ungültig")
+        with self.lock:
+            o.mode, o.manual_angle = "manual", int(angle)
+            o.apply_level(o.manual_angle, round(rules.watts_for_angle(self.cal, o.manual_angle), 1), 0)
 
     def _pump(self, now):
         mono = time.monotonic()
@@ -290,7 +336,8 @@ class Controller:
                 "irrigation": {"last": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),
                                "next": nxt, "running": time.monotonic() < self.pump_until},
                 "outputs": {n: {"state": o.state, "mode": o.mode, "role": o.role,
-                                "ok": getattr(o.backend, "healthy", True), "info": o.info} for n, o in self.outs.items()},
+                                "ok": getattr(o.backend, "healthy", True), "info": o.info,
+                                "proportional": o.proportional, "angle": o.angle, "watts": o.watts} for n, o in self.outs.items()},
             }
 
     def get_settings(self):
@@ -405,6 +452,7 @@ class Controller:
             raise ValueError("ungültig")
         with self.lock:
             self.outs[name].mode = mode
+            self.outs[name].manual_angle = None
             self.saved.setdefault("modes", {})[name] = mode
             settings.save(self._p("settings.json"), self.saved)
             self.event("mode", f"{name}: Modus {mode}")

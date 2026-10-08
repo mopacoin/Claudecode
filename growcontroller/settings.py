@@ -25,6 +25,10 @@ SPEC = {
         "enabled": ("bool",), "temp_min": ("num", 0, 40), "temp_max": ("num", 10, 50),
         "hum_min": ("num", 0, 90), "hum_max": ("num", 20, 100), "delay_min": ("int", 0, 120),
     },
+    "exhaust": {
+        "enabled": ("bool",), "min_w": ("num", 0, 1000), "max_w": ("num", 0, 1000), "max_w_night": ("num", 0, 1000),
+        "temp_band": ("num", 0.5, 10), "hum_band": ("num", 1, 30), "deadband_deg": ("int", 1, 20),
+    },
     "grow": {"stage": ("str", 40), "start_date": ("date",)},  # stage = Zyklus-ID (eingebaut oder eigen), "" = keiner
 }
 
@@ -35,8 +39,28 @@ DEFAULTS = {
     "light": {"enabled": True, "on": "06:00", "off": "00:00"},
     "irrigation": {"enabled": True, "interval_min": 720, "duration_s": 30, "from_hour": 6, "to_hour": 22},
     "alarms": {"enabled": True, "temp_min": 15, "temp_max": 32, "hum_min": 30, "hum_max": 80, "delay_min": 10},
+    "exhaust": {"enabled": True, "min_w": 22, "max_w": 85, "max_w_night": 60, "temp_band": 3, "hum_band": 10, "deadband_deg": 3},
     "grow": {"stage": "", "start_date": ""},
 }
+
+DEFAULT_CAL = [[0, 20], [90, 25], [180, 85]]  # Abluft-Servo: [Winkel, Watt] – Startwerte, per Lernpunkt verfeinern
+
+
+def validate_cal(points):
+    """Kennlinie prüfen und sortieren. -> (punkte, fehler)"""
+    if not isinstance(points, list) or not 2 <= len(points) <= 20:
+        return None, "2 bis 20 Lernpunkte erforderlich"
+    out = {}
+    for p in points:
+        if (not isinstance(p, list) or len(p) != 2 or _check(("int", 0, 180), p[0]) or _check(("num", 0, 1000), p[1])):
+            return None, "Lernpunkt = [Winkel 0…180, Watt 0…1000]"
+        out[int(p[0])] = float(p[1])
+    pts = sorted([a, w] for a, w in out.items())
+    if len(pts) < 2:
+        return None, "mindestens 2 verschiedene Winkel"
+    if any(w1 < w0 for (_, w0), (_, w1) in zip(pts, pts[1:])):
+        return None, "Die Leistung muss mit steigendem Winkel gleich bleiben oder steigen"
+    return pts, None
 
 # Voreinstellungen je Wachstumsphase (nur Richtwerte – an die eigene Pflanze anpassen)
 PRESETS = {
@@ -110,6 +134,8 @@ def cross_check(cfg):
         errors["alarms.temp_min"] = "muss kleiner als Maximum sein"
     if cfg["alarms"]["hum_min"] >= cfg["alarms"]["hum_max"]:
         errors["alarms.hum_min"] = "muss kleiner als Maximum sein"
+    if cfg["exhaust"]["min_w"] > min(cfg["exhaust"]["max_w"], cfg["exhaust"]["max_w_night"]):
+        errors["exhaust.min_w"] = "Grundlast muss unter den Maxima liegen"
     if cfg["irrigation"]["from_hour"] >= cfg["irrigation"]["to_hour"]:
         errors["irrigation.from_hour"] = "Start muss vor Ende liegen"
     return errors

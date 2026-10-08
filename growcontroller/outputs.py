@@ -38,8 +38,10 @@ def _gpio():
 
 
 class Output:
-    def __init__(self, name, backend, role=None, min_switch_s=0, max_on_s=None, safe_state=False, info=None):
+    def __init__(self, name, backend, role=None, min_switch_s=0, max_on_s=None, safe_state=False, info=None, proportional=False):
         self.info = info or {}
+        self.proportional = proportional  # Servo: Winkel statt Ein/Aus
+        self.angle = self.watts = self.manual_angle = None
         self.name, self.backend, self.role = name, backend, role or name
         self.min_switch_s, self.max_on_s, self.safe_state = min_switch_s, max_on_s, safe_state
         self.mode = "auto"      # auto | on | off
@@ -57,6 +59,14 @@ class Output:
         if want != self.state and (now - self.changed >= self.min_switch_s or self.mode == "off"):
             self.state, self.changed = want, now
             self.backend.set(want)
+
+    def apply_level(self, angle, watts, deadband=3):
+        """Stufenlos: Winkel nur senden, wenn er sich um mindestens `deadband` Grad ändert."""
+        angle = int(round(max(0, min(180, angle))))
+        if self.angle is None or abs(angle - self.angle) >= deadband or (self.mode == "manual" and angle != self.angle):
+            self.angle = angle
+            self.backend.set(angle)
+        self.watts = watts
 
     def shutdown(self):
         self.state = self.safe_state
@@ -77,6 +87,7 @@ def create_all(cfg):
         c = dict(c)
         typ = c.pop("type", "gpio")
         common = {k: c.pop(k) for k in ("role", "min_switch_s", "max_on_s", "safe_state") if k in c}
+        common["proportional"] = bool(c.pop("proportional", typ == "mqtt_servo"))
         secret = ("key", "local_key", "password")
         common["info"] = {"type": typ, **{k: v for k, v in c.items() if k not in secret}, **{k: common[k] for k in ("min_switch_s", "max_on_s") if k in common}}
         try:

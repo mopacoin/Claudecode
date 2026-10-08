@@ -237,10 +237,15 @@ class MqttServoBackend(WorkerBackend):
 
     def __init__(self, hub, topic, angle_on=90, angle_off=0, payload="{angle}",
                  payload_on=None, payload_off=None, retain=True, **kw):
-        self.hub, self.topic, self.retain = hub, topic, retain
+        self.hub, self.topic, self.retain, self.payload = hub, topic, retain, payload
         self.p_on = payload_on if payload_on is not None else payload.replace("{angle}", str(angle_on))
         self.p_off = payload_off if payload_off is not None else payload.replace("{angle}", str(angle_off))
         super().__init__(**kw)
 
-    def _send(self, on):
-        self.hub.publish(self.topic, self.p_on if on else self.p_off, self.retain)
+    def _send(self, v):
+        """v: bool (auf/zu) oder Winkel 0…180 (stufenlos)."""
+        if isinstance(v, bool):
+            msg = self.p_on if v else self.p_off
+        else:
+            msg = self.payload.replace("{angle}", str(int(max(0, min(180, v)))))
+        self.hub.publish(self.topic, msg, self.retain)

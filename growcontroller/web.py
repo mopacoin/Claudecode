@@ -43,7 +43,7 @@ def make_handler(ctl, token):
                 self._send(200, ctl.history(rng))
             elif u.path == "/api/settings":
                 self._send(200, {"values": ctl.get_settings(), "spec": settings.SPEC,
-                                 "presets": ctl.presets(), "colors": settings.PALETTE, "auth": bool(token)})
+                                 "presets": ctl.presets(), "colors": settings.PALETTE, "calibration": ctl.cal, "auth": bool(token)})
             elif u.path == "/api/events":
                 self._send(200, list(ctl.events)[-200:][::-1])
             elif u.path == "/api/export.csv":
@@ -77,6 +77,15 @@ def make_handler(ctl, token):
             if len(parts) == 4 and parts[:2] == ["api", "presets"] and parts[3] == "apply":
                 new, errors = ctl.apply_preset(parts[2])
                 return self._send(400, {"errors": errors}) if errors else self._send(200, {"values": new, "presets": ctl.presets()})
+            if parts == ["api", "calibration"]:
+                pts, err = ctl.set_calibration(body.get("points"))
+                return self._send(400, {"error": err}) if err else self._send(200, {"calibration": pts})
+            if len(parts) == 4 and parts[:2] == ["api", "servo"] and parts[3] == "angle":
+                try:
+                    ctl.servo_manual(parts[2], body.get("angle"))
+                    return self._send(200, ctl.status())
+                except ValueError:
+                    return self._send(400, {"error": "Winkel 0…180 und stufenloser Servo erforderlich"})
             if parts == ["api", "irrigation", "run"]:
                 ctl.water_now()
                 return self._send(200, ctl.status())

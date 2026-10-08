@@ -4,9 +4,10 @@ import os
 import re
 from datetime import datetime
 
-STAGES = ["", "seedling", "veg", "flower", "late", "dry"]
+PALETTE = ["#3ddc97", "#4db8ff", "#b794ff", "#ff8a5c", "#ffb547", "#ff5d8f", "#2dd4bf", "#a3e635"]
+MAX_PRESETS = 30
 
-# (Art, Parameter...): num(min,max) | int(min,max) | bool | enum(werte) | time | date
+# (Art, Parameter...): num(min,max) | int(min,max) | bool | enum(werte) | time | date | str(maxlen)
 SPEC = {
     "climate": {
         "control": ("enum", ["temp_hum", "vpd"]),
@@ -24,7 +25,7 @@ SPEC = {
         "enabled": ("bool",), "temp_min": ("num", 0, 40), "temp_max": ("num", 10, 50),
         "hum_min": ("num", 0, 90), "hum_max": ("num", 20, 100), "delay_min": ("int", 0, 120),
     },
-    "grow": {"stage": ("enum", STAGES), "start_date": ("date",)},
+    "grow": {"stage": ("str", 40), "start_date": ("date",)},  # stage = Zyklus-ID (eingebaut oder eigen), "" = keiner
 }
 
 DEFAULTS = {
@@ -39,15 +40,15 @@ DEFAULTS = {
 
 # Voreinstellungen je Wachstumsphase (nur Richtwerte – an die eigene Pflanze anpassen)
 PRESETS = {
-    "seedling": {"label": "Keimling", "climate": {"temp_day": 25, "temp_night": 22, "hum_day": 70, "hum_night": 70, "vpd_day": 0.6, "vpd_night": 0.6},
+    "seedling": {"color": "#4db8ff", "label": "Keimling", "climate": {"temp_day": 25, "temp_night": 22, "hum_day": 70, "hum_night": 70, "vpd_day": 0.6, "vpd_night": 0.6},
                  "light": {"on": "06:00", "off": "00:00"}},
-    "veg": {"label": "Wachstum", "climate": {"temp_day": 26, "temp_night": 22, "hum_day": 62, "hum_night": 60, "vpd_day": 1.0, "vpd_night": 0.9},
+    "veg": {"color": "#3ddc97", "label": "Wachstum", "climate": {"temp_day": 26, "temp_night": 22, "hum_day": 62, "hum_night": 60, "vpd_day": 1.0, "vpd_night": 0.9},
             "light": {"on": "06:00", "off": "00:00"}},
-    "flower": {"label": "Blüte", "climate": {"temp_day": 25, "temp_night": 21, "hum_day": 52, "hum_night": 50, "vpd_day": 1.2, "vpd_night": 1.0},
+    "flower": {"color": "#b794ff", "label": "Blüte", "climate": {"temp_day": 25, "temp_night": 21, "hum_day": 52, "hum_night": 50, "vpd_day": 1.2, "vpd_night": 1.0},
                "light": {"on": "08:00", "off": "20:00"}},
-    "late": {"label": "Spätblüte", "climate": {"temp_day": 23, "temp_night": 19, "hum_day": 45, "hum_night": 45, "vpd_day": 1.4, "vpd_night": 1.2},
+    "late": {"color": "#ff8a5c", "label": "Spätblüte", "climate": {"temp_day": 23, "temp_night": 19, "hum_day": 45, "hum_night": 45, "vpd_day": 1.4, "vpd_night": 1.2},
              "light": {"on": "08:00", "off": "20:00"}},
-    "dry": {"label": "Trocknung", "climate": {"temp_day": 19, "temp_night": 18, "hum_day": 58, "hum_night": 58},
+    "dry": {"color": "#ffb547", "label": "Trocknung", "climate": {"temp_day": 19, "temp_night": 18, "hum_day": 58, "hum_night": 58},
             "light": {"enabled": False}},
 }
 
@@ -67,6 +68,8 @@ def _check(spec, v):
         return None if isinstance(v, bool) else "true/false erwartet"
     elif kind == "enum":
         return None if v in spec[1] else "ungültiger Wert"
+    elif kind == "str":
+        return None if isinstance(v, str) and len(v) <= spec[1] else "Text zu lang"
     elif kind == "time":
         return None if isinstance(v, str) and _TIME.match(v) else "Format HH:MM"
     elif kind == "date":
@@ -132,3 +135,54 @@ def save(path, data):
     with open(tmp, "w") as f:
         json.dump(data, f, indent=1)
     os.replace(tmp, path)
+
+
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+_PRESET_KEYS = {"id", "label", "color", "notes", "days", "next", "climate", "light", "irrigation"}
+
+
+def validate_preset(body, ids, own_id=None):
+    """Prüft einen eigenen Zyklus. ids = alle existierenden Zyklus-IDs (für 'next')."""
+    if not isinstance(body, dict):
+        return None, {"": "Objekt erwartet"}
+    errors, out = {}, {}
+    for k in body:
+        if k not in _PRESET_KEYS:
+            errors[k] = "unbekanntes Feld"
+    label = body.get("label")
+    if not isinstance(label, str) or not 1 <= len(label.strip()) <= 40:
+        errors["label"] = "Name erforderlich (max. 40 Zeichen)"
+    else:
+        out["label"] = label.strip()
+    color = body.get("color", PALETTE[0])
+    if not (isinstance(color, str) and _HEX.match(color)):
+        errors["color"] = "Farbe als #rrggbb"
+    else:
+        out["color"] = color.lower()
+    notes = body.get("notes", "")
+    if not isinstance(notes, str) or len(notes) > 300:
+        errors["notes"] = "max. 300 Zeichen"
+    else:
+        out["notes"] = notes
+    days = body.get("days", 0)
+    if _check(("int", 0, 365), days):
+        errors["days"] = "ganze Zahl 0…365"
+    else:
+        out["days"] = int(days)
+    nxt = body.get("next", "")
+    if nxt and (nxt not in ids or nxt == own_id):
+        errors["next"] = "unbekannter Folge-Zyklus"
+    elif out.get("days", 0) == 0 and nxt:
+        errors["next"] = "Folge-Zyklus braucht eine Dauer"
+    else:
+        out["next"] = nxt or ""
+    for sec in ("climate", "light", "irrigation"):
+        if sec in body:
+            c, e = validate({sec: body[sec]})
+            errors.update(e)
+            if sec in c:
+                out[sec] = c[sec]
+    irr = out.get("irrigation", {})
+    if "from_hour" in irr and "to_hour" in irr and irr["from_hour"] >= irr["to_hour"]:
+        errors["irrigation.from_hour"] = "Start muss vor Ende liegen"
+    return (None, errors) if errors else (out, {})

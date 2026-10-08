@@ -19,7 +19,11 @@ Läuft im Controller selbst (keine externen Bibliotheken, funktioniert offline),
   umgerechnet, mit Blatt-Temperaturversatz), Tag/Nacht-Sollwerte, Hysteresen, Lüfter-Grundlauf
 - **Licht:** Zeitplan inkl. Schnellwahl 18/6, 20/4, 16/8, 12/12 · **Bewässerung:** Intervall, Dauer, Zeitfenster
 - **Alarme:** Grenzwerte mit Verzögerung; Sensor-/Geräteausfall; aktive Alarme im Kopf der Seite
-- **Zyklus:** Wachstumsphase mit Tageszähler und Voreinstellungen (Keimling, Wachstum, Blüte, Spätblüte, Trocknung – nur Richtwerte)
+- **Zyklen:** Wachstumsphasen mit Tageszähler und Fortschrittsbalken. Zu den eingebauten Richtwerten (Keimling, Wachstum, Blüte,
+  Spätblüte, Trocknung) lassen sich **eigene Zyklen erstellen, benennen, einfärben, bearbeiten, duplizieren und löschen**.
+  Ein Zyklus enthält alle Klima-Werte (inkl. VPD), den Lichtplan und die Bewässerung, Notizen, optional eine **Dauer in Tagen**
+  und einen **Folge-Zyklus** – dann wechselt der Controller nach Ablauf automatisch (Ereignisprotokoll). Eingebaute Zyklen sind
+  schreibgeschützt (duplizieren und anpassen). Eigene Zyklen stehen in `data/settings.json` (max. 30).
 - **System:** Ereignisprotokoll (Alarme, Schaltvorgänge, Einstellungen), Hardware-Übersicht, CSV-Export, Token
 
 Einstellungen werden serverseitig geprüft (Grenzen stehen in `settings.py`), sofort übernommen und in `data/settings.json`
@@ -55,6 +59,6 @@ Auf dem Pi: `pip3 install -r requirements.txt` (nach Bedarf), in `config.json` d
 
 Autostart: `deploy/growcontroller.service` nach `/etc/systemd/system/` kopieren, `systemctl enable --now growcontroller`.
 
-API: `GET /api/status|history?range=1h|6h|24h|7d|settings|events|export.csv`, `POST /api/settings` (`{"climate":{"temp_day":25}}`), `POST /api/output/<name>` (`{"mode":"auto|on|off"}`), `POST /api/irrigation/run` (Schreibzugriffe mit Header `X-Token`, falls gesetzt).
+API: `GET /api/status|history?range=1h|6h|24h|7d|settings|events|export.csv`, `POST /api/settings` (`{"climate":{"temp_day":25}}`), `POST /api/output/<name>` (`{"mode":"auto|on|off"}`), `POST /api/presets` (anlegen/ändern), `POST /api/presets/<id>/apply`, `DELETE /api/presets/<id>`, `POST /api/irrigation/run` (Schreibzugriffe mit Header `X-Token`, falls gesetzt).
 
 **Sicherheit:** Netzspannung nur mit geeigneten Relais/Absicherung (FI, Sicherung, Übertemperaturschutz in Hardware) – Software ersetzt keinen Hardware-Schutz.

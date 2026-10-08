@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from collections import deque
 from datetime import datetime, timedelta
 
@@ -43,6 +44,7 @@ class Controller:
         self.alarms, self._pending = {}, {}
         self._prev_state = {n: False for n in self.outs}
         self._last_minute = None
+        self._adv_block = None
         self.pump_until = 0.0
         self.last_irrigation = self._load_state().get("last_irrigation")
         self.lock = threading.RLock()
@@ -143,6 +145,7 @@ class Controller:
                     self.event("output", f"{n}: {'EIN' if o.state else 'AUS'}")
             self._check_alarms()
             self._record(now)
+            self._advance(now)
 
     def _pump(self, now):
         mono = time.monotonic()
@@ -283,7 +286,7 @@ class Controller:
                 "targets": {"temp": cl[f"temp_{p}"], "hum": cl[f"hum_{p}"], "vpd": self.cfg["climate"][f"vpd_{p}"],
                             "control": cl["control"]},
                 "stats": self.stats(), "alarms": [{"id": k, **v} for k, v in self.alarms.items()],
-                "grow": {"stage": g["stage"], "day": gday},
+                "grow": self._grow_status(g, gday),
                 "irrigation": {"last": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),
                                "next": nxt, "running": time.monotonic() < self.pump_until},
                 "outputs": {n: {"state": o.state, "mode": o.mode, "role": o.role,
@@ -302,6 +305,8 @@ class Controller:
         with self.lock:
             merged = settings.merge({s: self.cfg[s] for s in settings.SPEC}, clean)
             errors = settings.cross_check(merged)
+            if merged["grow"]["stage"] and merged["grow"]["stage"] not in self.presets():
+                errors["grow.stage"] = "unbekannter Zyklus"
             if errors:
                 return None, errors
             for sec, vals in clean.items():
@@ -310,6 +315,90 @@ class Controller:
             settings.save(self._p("settings.json"), self.saved)
             self.event("settings", "Einstellungen geändert: " + ", ".join(f"{s}.{k}={v}" for s, d in clean.items() for k, v in d.items()))
             return self.get_settings(), {}
+
+    # --- Zyklen (Presets) ---
+    def presets(self):
+        built = {k: {"days": 0, "next": "", "notes": "", **v, "builtin": True} for k, v in settings.PRESETS.items()}
+        custom = {k: {"days": 0, "next": "", "notes": "", **v, "builtin": False} for k, v in self.saved.get("presets", {}).items()}
+        return {**built, **custom}
+
+    def _grow_status(self, g, gday):
+        pr = self.presets()
+        p = pr.get(g["stage"])
+        nxt = pr.get(p["next"]) if p and p.get("next") else None
+        return {"stage": g["stage"], "label": p["label"] if p else "", "color": p.get("color") if p else None, "day": gday,
+                "days": p["days"] if p else 0, "next": nxt["label"] if nxt else ""}
+
+    def save_preset(self, body):
+        """Legt einen eigenen Zyklus an (ohne id) oder ändert ihn (mit id). -> (id, fehler)"""
+        with self.lock:
+            custom = self.saved.setdefault("presets", {})
+            pid = body.get("id") if isinstance(body, dict) else None
+            if pid and pid not in custom:
+                return None, {"id": "Eingebaute Zyklen sind schreibgeschützt – bitte duplizieren" if pid in settings.PRESETS else "unbekannter Zyklus"}
+            if not pid and len(custom) >= settings.MAX_PRESETS:
+                return None, {"": f"Maximal {settings.MAX_PRESETS} eigene Zyklen"}
+            clean, errors = settings.validate_preset(body, set(self.presets()), pid)
+            if errors:
+                return None, errors
+            pid = pid or "c" + uuid.uuid4().hex[:8]
+            custom[pid] = clean
+            settings.save(self._p("settings.json"), self.saved)
+            self.event("settings", f"Zyklus gespeichert: {clean['label']}")
+            return pid, {}
+
+    def delete_preset(self, pid):
+        with self.lock:
+            custom = self.saved.get("presets", {})
+            if pid not in custom:
+                return False
+            label = custom.pop(pid)["label"]
+            for p in custom.values():  # Verweise auf den gelöschten Zyklus entfernen
+                if p.get("next") == pid:
+                    p["next"] = ""
+            if self.cfg["grow"]["stage"] == pid:
+                self.cfg["grow"]["stage"] = ""
+                self.saved.setdefault("grow", {})["stage"] = ""
+            settings.save(self._p("settings.json"), self.saved)
+            self.event("settings", f"Zyklus gelöscht: {label}")
+            return True
+
+    def apply_preset(self, pid, start=None):
+        """Übernimmt Klima/Licht/Bewässerung eines Zyklus. -> (settings, fehler)"""
+        with self.lock:
+            p = self.presets().get(pid)
+            if not p:
+                return None, {"": "unbekannter Zyklus"}
+            patch = {s: dict(p[s]) for s in ("climate", "light", "irrigation") if s in p}
+            if "light" in patch and "enabled" not in patch["light"]:
+                patch["light"]["enabled"] = True
+            patch["grow"] = {"stage": pid, "start_date": start or datetime.now().strftime("%Y-%m-%d")}
+            new, errors = self.update_settings(patch)
+            if not errors:
+                self._adv_block = None
+                self.event("settings", f"Zyklus angewendet: {p['label']}")
+            return new, errors
+
+    def _advance(self, now):
+        """Wechselt automatisch zum Folge-Zyklus, wenn die Dauer des aktuellen abgelaufen ist."""
+        key = (now.hour, now.minute)
+        if getattr(self, "_adv_last", None) == key:
+            return
+        self._adv_last = key
+        for _ in range(10):  # Ketten abarbeiten (z. B. nach längerem Stillstand)
+            g = self.cfg["grow"]
+            p = self.presets().get(g["stage"])
+            if not p or not p["days"] or not p["next"] or not g["start_date"] or self._adv_block == g["stage"]:
+                return
+            start = datetime.strptime(g["start_date"], "%Y-%m-%d").date()
+            if (now.date() - start).days < p["days"]:
+                return
+            _, errors = self.apply_preset(p["next"], (start + timedelta(days=p["days"])).isoformat())
+            if errors:
+                self._adv_block = g["stage"]
+                log.warning("Automatischer Zykluswechsel fehlgeschlagen: %s", errors)
+                return
+            self.event("system", f"Automatischer Wechsel: {p['label']} → {self.presets()[p['next']]['label']}")
 
     def set_mode(self, name, mode):
         if name not in self.outs or mode not in ("auto", "on", "off"):

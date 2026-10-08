@@ -82,3 +82,45 @@ class TestAlarms(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCycles(unittest.TestCase):
+    BODY = {"label": "Mein Zyklus", "color": "#ff5d8f", "days": 10, "notes": "Test",
+            "climate": {"temp_day": 23.5, "temp_night": 19}, "light": {"enabled": True, "on": "07:00", "off": "19:00"},
+            "irrigation": {"interval_min": 300, "duration_s": 20, "from_hour": 7, "to_hour": 19}}
+
+    def test_crud_and_apply(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = make(d)
+            pid, err = c.save_preset(dict(self.BODY)); self.assertFalse(err); self.assertTrue(pid)
+            self.assertFalse(c.presets()[pid]["builtin"]); self.assertTrue(c.presets()["veg"]["builtin"])
+            new, err = c.apply_preset(pid)
+            self.assertFalse(err); self.assertEqual(new["climate"]["temp_day"], 23.5)
+            self.assertEqual(c.cfg["grow"]["stage"], pid); self.assertEqual(c.status()["grow"]["label"], "Mein Zyklus")
+            pid2, err = c.save_preset({**self.BODY, "id": pid, "label": "Umbenannt"}); self.assertEqual(pid2, pid)
+            self.assertEqual(c.presets()[pid]["label"], "Umbenannt")
+            self.assertTrue(c.delete_preset(pid))
+            self.assertEqual(c.cfg["grow"]["stage"], "")  # aktiver Zyklus gelöscht -> keiner aktiv
+            c.shutdown()
+            c2 = make(d); self.assertNotIn(pid, c2.presets()); c2.shutdown()
+
+    def test_validation_and_protection(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = make(d)
+            _, err = c.save_preset({**self.BODY, "label": " ", "color": "rot", "climate": {"temp_day": 99}})
+            self.assertEqual({"label", "color", "climate.temp_day"}, set(err))
+            _, err = c.save_preset({**self.BODY, "id": "veg"}); self.assertIn("id", err)  # eingebaut: schreibgeschützt
+            self.assertFalse(c.delete_preset("veg"))
+            _, err = c.save_preset({**self.BODY, "days": 0, "next": "veg"}); self.assertIn("next", err)
+            _, err = c.update_settings({"grow": {"stage": "gibtsnicht"}}); self.assertIn("grow.stage", err)
+            c.shutdown()
+
+    def test_auto_advance(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = make(d)
+            a, _ = c.save_preset({**self.BODY, "label": "A", "days": 7, "next": "veg"})
+            c.apply_preset(a, "2026-01-01")
+            c._advance(datetime(2026, 1, 5, 12, 0)); self.assertEqual(c.cfg["grow"]["stage"], a)  # noch nicht fällig
+            c._advance(datetime(2026, 1, 9, 12, 1))
+            self.assertEqual(c.cfg["grow"]["stage"], "veg"); self.assertEqual(c.cfg["grow"]["start_date"], "2026-01-08")
+            c.shutdown()

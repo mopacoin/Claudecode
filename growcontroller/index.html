@@ -108,6 +108,20 @@ button.sec{background:var(--card2);color:var(--text);border:1px solid var(--line
 .preset .badge{position:absolute;top:14px;right:14px;font-size:11px;background:var(--acc);color:var(--onacc);padding:2px 9px;border-radius:99px;font-weight:700}
 .preset h4{margin:0 0 8px;font-size:18px}.preset ul{list-style:none;margin:0 0 14px;padding:0;color:var(--mute);font-size:13px;line-height:1.9}
 .preset li b{color:var(--text);font-weight:600}
+/* Zyklen-Editor */
+.tag{font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--card2);color:var(--mute);vertical-align:middle;margin-left:6px}
+button.danger{color:var(--bad)}.preset .row{gap:8px}.preset .row button{padding:8px 13px;font-size:13px}
+.newcard{display:grid;place-items:center;min-height:200px;border:2px dashed var(--line);background:none;color:var(--mute);cursor:pointer;font:inherit;border-radius:var(--r);transition:.15s}
+.newcard:hover{border-color:var(--acc);color:var(--text);background:var(--card)}.newcard b{display:block;font-size:34px;line-height:1;margin-bottom:6px;color:var(--acc)}
+.bar{height:8px;border-radius:4px;background:var(--card2);overflow:hidden;margin-top:12px}.bar i{display:block;height:100%;border-radius:4px;background:var(--pc)}
+dialog{border:1px solid var(--line);border-radius:22px;background:var(--bg);color:var(--text);padding:0;width:min(780px,calc(100vw - 20px));max-height:92vh;box-shadow:0 30px 80px #000c;overflow:hidden}
+dialog[open]{display:flex;flex-direction:column;animation:fade .2s}dialog form{display:flex;flex-direction:column;min-height:0;max-height:92vh}
+dialog::backdrop{background:rgba(0,0,0,.62);backdrop-filter:blur(5px)}
+.dlg-h{display:flex;align-items:center;gap:12px;padding:16px 22px;border-bottom:1px solid var(--line)}.dlg-h h2{margin:0;font-size:19px}
+.dlg-b{padding:8px 22px 8px;overflow:auto;flex:1}.dlg-f{display:flex;gap:10px;justify-content:flex-end;padding:14px 22px;border-top:1px solid var(--line)}
+.sw{display:flex;gap:9px;flex-wrap:wrap;padding:4px 0}.sw button{width:32px;height:32px;border-radius:50%;border:2px solid transparent;background:var(--c);cursor:pointer;box-shadow:inset 0 0 0 3px var(--bg)}
+.sw button.on{border-color:var(--text)}
+.sec-t{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--acc);margin:22px 0 4px;font-weight:600}
 /* Tabellen */
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:9px 10px;text-align:left;vertical-align:top}
 th{color:var(--mute);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--line)}
@@ -178,8 +192,9 @@ tr+tr td{border-top:1px solid var(--line)}
         <div class="card" id="alarmList"></div><div id="f-alarms" class="card mt"></div>
       </section>
       <section class="tab" id="tab-cycle">
-        <div id="f-grow" class="card"></div>
-        <p class="hint mt">Voreinstellungen setzen Temperatur, Feuchte, VPD und Lichtzeiten. Es sind Richtwerte – bitte an Sorte und Umgebung anpassen.</p>
+        <div class="card" id="cycleInfo"></div>
+        <div id="f-grow" class="card mt"></div>
+        <p class="hint mt">Ein Zyklus bündelt Klima-, Licht- und Bewässerungswerte. Die eingebauten sind nur Richtwerte – erstelle eigene Zyklen oder dupliziere einen und passe ihn an. Mit einer Dauer wechselt der Controller automatisch zum Folge-Zyklus.</p>
         <div class="grid g4" id="presets"></div>
       </section>
       <section class="tab" id="tab-system">
@@ -196,6 +211,7 @@ tr+tr td{border-top:1px solid var(--line)}
   </div>
 </div>
 <nav class="bottom" id="botNav"></nav>
+<dialog id="dlg"></dialog>
 <div id="toast"></div>
 
 <script>
@@ -222,8 +238,6 @@ const ico = n => `<svg class="ico" viewBox="0 0 24 24">${P[n]}</svg>`;
 const ROLE_ICO = {light: 'sun', fan: 'fan', heater: 'flame', humidifier: 'drops', dehumidifier: 'wind', pump: 'drop', intake: 'in', vent: 'out'};
 const LABEL = {light: 'Licht', fan: 'Lüfter', heater: 'Heizung', humidifier: 'Befeuchter', dehumidifier: 'Entfeuchter',
   pump: 'Pumpe', zuluft: 'Zuluft', abluft_servo: 'Abluft-Servo'};
-const STAGE = {seedling: 'Keimling', veg: 'Wachstum', flower: 'Blüte', late: 'Spätblüte', dry: 'Trocknung'};
-const STAGE_COL = {seedling: '#4db8ff', veg: '#3ddc97', flower: '#b794ff', late: '#ff8a5c', dry: '#ffb547'};
 const TABS = [['overview', 'Übersicht', 'Übersicht', 'grid'], ['devices', 'Geräte', 'Geräte', 'cpu'], ['climate', 'Klima', 'Klima', 'thermo'],
   ['light', 'Licht', 'Licht', 'sun'], ['irrigation', 'Bewässerung', 'Wasser', 'drop'], ['alarms', 'Alarme', 'Alarme', 'bell'],
   ['cycle', 'Zyklus', 'Zyklus', 'leaf'], ['system', 'System', 'System', 'sliders']];
@@ -254,22 +268,22 @@ const FORMS = {
     {k: 'enabled', l: 'Alarme aktiv', t: 'bool'}, {k: 'temp_min', l: 'Temperatur min', u: '°C', step: .5}, {k: 'temp_max', l: 'Temperatur max', u: '°C', step: .5},
     {k: 'hum_min', l: 'Luftfeuchte min', u: '%', step: 1}, {k: 'hum_max', l: 'Luftfeuchte max', u: '%', step: 1}, {k: 'delay_min', l: 'Verzögerung bis Alarm', u: 'min', step: 1}],
    hint: 'Ein Alarm löst erst aus, wenn die Grenze so lange verletzt bleibt. Ausfall von Sensor oder Gerät meldet sich nach 60 s.'},
-  grow: {title: 'Grow-Zyklus', fields: [
-    {k: 'stage', l: 'Phase', t: 'select', o: [['', '– keine –'], ['seedling', 'Keimling'], ['veg', 'Wachstum'], ['flower', 'Blüte'], ['late', 'Spätblüte'], ['dry', 'Trocknung']]},
-    {k: 'start_date', l: 'Start der Phase', t: 'date'}]},
+  grow: {title: 'Zyklus wechseln', fields: [
+    {k: 'stage', l: 'Aktiver Zyklus', t: 'select', dyn: true},
+    {k: 'start_date', l: 'Start des Zyklus', t: 'date'}]},
 };
 
 let S = null, CFG = null, range = '1h', hist = [], shown = new Set(['temp', 'hum', 'vpd']), evFilter = '', hover = -1;
 let token = ''; try { token = localStorage.token || ''; } catch (e) {}
 
 function toast(msg, bad) { const t = $('#toast'); t.textContent = msg; t.className = 'show' + (bad ? ' bad' : ''); clearTimeout(toast.h); toast.h = setTimeout(() => t.className = '', 2600); }
-async function api(path, body, retried) {
-  const opt = body === undefined ? {} : {method: 'POST', body: JSON.stringify(body)};
+async function api(path, body, retried, method) {
+  const opt = method ? {method} : body === undefined ? {} : {method: 'POST', body: JSON.stringify(body)};
   opt.headers = {'X-Token': token};
   const r = await fetch(path, opt);
   if (r.status === 401 && !retried) {
     const t = prompt('Zugangs-Token eingeben:'); if (t === null) throw new Error('Token erforderlich');
-    token = t; try { localStorage.token = t; } catch (e) {} return api(path, body, true);
+    token = t; try { localStorage.token = t; } catch (e) {} return api(path, body, true, method);
   }
   const data = r.headers.get('content-type')?.includes('json') ? await r.json() : await r.text();
   if (!r.ok) { const e = new Error(data.error || 'Fehler'); e.data = data; throw e; }
@@ -359,7 +373,7 @@ function renderHeader() {
   const n = S.alarms.length, p = $('#alarmPill');
   p.innerHTML = `<span class="d"></span>${n ? `${n} Alarm${n > 1 ? 'e' : ''}` : 'Alles in Ordnung'}`; p.className = 'chip ' + (n ? 'alarm' : 'good');
   const gr = S.grow, sp = $('#stagePill');
-  sp.innerHTML = gr.stage ? `<span class="d" style="background:${STAGE_COL[gr.stage]}"></span>${STAGE[gr.stage]}${gr.day ? ' · Tag ' + gr.day : ''}` : 'Keine Phase gewählt';
+  sp.innerHTML = gr.label ? `<span class="d" style="background:${gr.color}"></span>${esc(gr.label)}${gr.day ? ' · Tag ' + gr.day : ''}` : 'Kein Zyklus aktiv';
   $('#clock').textContent = S.time.slice(11, 16) + ' Uhr';
   $('#sideFoot').innerHTML = `<div style="color:var(--text);font-weight:600;margin-bottom:2px">${n ? '⚠ ' + n + ' Alarm' + (n > 1 ? 'e' : '') : '✓ Alles in Ordnung'}</div>Sensoren: ${S.stale ? 'veraltet' : 'aktuell'}`;
 }
@@ -452,23 +466,26 @@ $('#devices').onclick = async e => {
 };
 
 // ---- Einstellungsformulare ----
+function fieldHTML(sec, f, v, ns) {
+  const sp = CFG.spec[sec][f.k], t = f.t || 'num', nm = ns ? `${sec}.${f.k}` : f.k, id = `${sec}_${f.k}${ns ? '_d' : ''}`;
+  const at = `data-k="${f.k}" data-s="${sec}" ${f.show ? `data-sk="${ns ? sec + '.' : ''}${f.show[0]}" data-sv="${f.show[1]}"` : ''}`;
+  if (t === 'bool') return `<div class="fld" ${at}><div class="tog"><label for="${id}">${f.l}</label><input id="${id}" type="checkbox" name="${nm}" ${v ? 'checked' : ''}></div><div class="err"></div></div>`;
+  let inp;
+  if (t === 'select') { const o = f.dyn ? [['', '– keiner –'], ...Object.entries(CFG.presets).map(([k, p]) => [k, p.label])] : f.o;
+    inp = `<select name="${nm}">${o.map(([val, l]) => `<option value="${esc(val)}" ${v === val ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`; }
+  else if (t === 'time' || t === 'date') inp = `<input type="${t}" name="${nm}" value="${v ?? ''}">`;
+  else inp = `<input type="number" inputmode="decimal" name="${nm}" value="${v}" min="${sp[1]}" max="${sp[2]}" step="${f.step || 1}">`;
+  return `<div class="fld" ${at}><label>${f.l}</label><div class="ig">${inp}${f.u ? `<span>${f.u}</span>` : ''}</div><div class="err"></div></div>`;
+}
+const bindVis = form => { const vis = () => form.querySelectorAll('[data-sk]').forEach(r => r.style.display = form.elements[r.dataset.sk].value === r.dataset.sv ? '' : 'none'); vis(); form.addEventListener('change', vis); };
 function buildForm(sec) {
   const F = FORMS[sec], vals = CFG.values[sec], spec = CFG.spec[sec], box = $('#f-' + sec);
-  const fields = F.fields.map(f => {
-    const sp = spec[f.k], v = vals[f.k], t = f.t || 'num', sh = f.show ? `data-sk="${f.show[0]}" data-sv="${f.show[1]}"` : '';
-    if (t === 'bool') return `<div class="fld" data-k="${f.k}" ${sh}><div class="tog"><label for="${sec}_${f.k}">${f.l}</label><input id="${sec}_${f.k}" type="checkbox" name="${f.k}" ${v ? 'checked' : ''}></div><div class="err"></div></div>`;
-    let inp;
-    if (t === 'select') inp = `<select name="${f.k}">${f.o.map(([val, l]) => `<option value="${val}" ${v === val ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
-    else if (t === 'time' || t === 'date') inp = `<input type="${t}" name="${f.k}" value="${v ?? ''}">`;
-    else inp = `<input type="number" inputmode="decimal" name="${f.k}" value="${v}" min="${sp[1]}" max="${sp[2]}" step="${f.step || 1}">`;
-    return `<div class="fld" data-k="${f.k}" ${sh}><label>${f.l}</label><div class="ig">${inp}${f.u ? `<span>${f.u}</span>` : ''}</div><div class="err"></div></div>`;
-  }).join('');
+  const fields = F.fields.map(f => fieldHTML(sec, f, vals[f.k], false)).join('');
   const photo = F.photo ? `<div class="fld"><label>Lichtzyklus (Schnellwahl)</label><div class="chips">${[[18, 6], [20, 4], [16, 8], [12, 12]].map(([a, b]) => `<button type="button" class="chip" data-ph="${a}">${a} / ${b}</button>`).join('')}</div></div>` : '';
   box.innerHTML = `<h3>${F.title}</h3>${F.hint ? `<p class="hint">${F.hint}</p>` : ''}<form data-sec="${sec}" novalidate><div class="fgrid">${fields}${photo}</div>
     <div class="actions"><button class="pri" type="submit">Speichern</button><button class="sec" type="button" data-reset>Zurücksetzen</button></div></form>`;
   const form = $('form', box);
-  const vis = () => form.querySelectorAll('[data-sk]').forEach(r => r.style.display = form.elements[r.dataset.sk].value === r.dataset.sv ? '' : 'none');
-  vis(); form.onchange = vis;
+  bindVis(form);
   form.querySelector('[data-reset]').onclick = () => buildForm(sec);
   form.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => {
     const [h, m] = (form.elements.on.value || '06:00').split(':').map(Number); form.elements.off.value = hm(h * 60 + m + +b.dataset.ph * 60);
@@ -486,28 +503,86 @@ function buildForm(sec) {
   };
 }
 
-// ---- Zyklus / Presets ----
+// ---- Zyklen ----
+function presetSummary(p) {
+  const c = p.climate || {}, li = p.light || {}, ir = p.irrigation || {}, nx = p.next && CFG.presets[p.next];
+  return `<ul>${c.temp_day != null ? `<li>Temperatur <b>${c.temp_day} / ${c.temp_night ?? '–'} °C</b></li>` : ''}
+    ${c.hum_day != null ? `<li>Luftfeuchte <b>${c.hum_day} / ${c.hum_night ?? '–'} %</b></li>` : ''}
+    ${c.vpd_day != null ? `<li>VPD <b>${c.vpd_day} / ${c.vpd_night ?? '–'} kPa</b></li>` : ''}
+    ${li.enabled === false ? '<li><b>Licht aus</b></li>' : li.on ? `<li>Licht <b>${li.on} – ${li.off}</b></li>` : ''}
+    ${ir.interval_min ? `<li>Gießen <b>alle ${ir.interval_min} min · ${ir.duration_s} s</b></li>` : ''}
+    ${p.days ? `<li>Dauer <b>${p.days} Tage</b>${nx ? ` → <b>${esc(nx.label)}</b>` : ''}</li>` : ''}</ul>`;
+}
 function renderPresets() {
-  const cur = CFG.values.grow.stage;
-  $('#presets').innerHTML = Object.entries(CFG.presets).map(([k, p]) => {
-    const c = p.climate, li = p.light;
-    return `<div class="card preset ${cur === k ? 'cur' : ''}" style="--pc:${STAGE_COL[k]}">${cur === k ? '<span class="badge">Aktiv</span>' : ''}<h4>${p.label}</h4><ul>
-      ${c.temp_day != null ? `<li>Temperatur <b>${c.temp_day} / ${c.temp_night} °C</b></li>` : ''}
-      ${c.hum_day != null ? `<li>Luftfeuchte <b>${c.hum_day} / ${c.hum_night} %</b></li>` : ''}
-      ${c.vpd_day != null ? `<li>VPD <b>${c.vpd_day} / ${c.vpd_night} kPa</b></li>` : ''}
-      <li>${li.enabled === false ? '<b>Licht aus</b>' : `Licht <b>${li.on} – ${li.off}</b>`}</li></ul>
-      <button class="sec" data-p="${k}">Anwenden</button></div>`;
-  }).join('');
+  const cur = CFG.values.grow.stage, g = S.grow, P = CFG.presets;
+  $('#cycleInfo').style.setProperty('--pc', g.color || 'var(--mute)');
+  $('#cycleInfo').innerHTML = `<h3>Aktueller Zyklus</h3>` + (g.label ? `<div class="row"><span class="dot on" style="background:${g.color};box-shadow:0 0 10px ${g.color}"></span><b style="font-size:21px">${esc(g.label)}</b>
+    <span class="sub">${g.day ? 'Tag ' + g.day + (g.days ? ' von ' + g.days : '') : ''}${g.next ? ' · danach ' + esc(g.next) : ''}</span></div>
+    ${g.days && g.day ? `<div class="bar"><i style="width:${Math.min(100, g.day / g.days * 100)}%"></i></div>` : ''}` : '<div class="sub">Kein Zyklus aktiv – wähle unten einen aus oder erstelle einen eigenen.</div>');
+  $('#presets').innerHTML = Object.entries(P).map(([k, p]) => `<div class="card preset ${cur === k ? 'cur' : ''}" style="--pc:${p.color}">
+    ${cur === k ? '<span class="badge">Aktiv</span>' : ''}<h4>${esc(p.label)}${p.builtin ? '' : '<span class="tag">Eigener</span>'}</h4>
+    ${p.notes ? `<div class="sub" style="margin-bottom:8px">${esc(p.notes)}</div>` : ''}${presetSummary(p)}
+    <div class="row"><button class="sec" data-act="apply" data-p="${k}">Anwenden</button>${p.builtin ? '' : `<button class="sec" data-act="edit" data-p="${k}">Bearbeiten</button>`}
+    <button class="sec" data-act="dup" data-p="${k}">Duplizieren</button>${p.builtin ? '' : `<button class="sec danger" data-act="del" data-p="${k}">Löschen</button>`}</div></div>`).join('')
+    + `<button class="newcard" data-act="new"><div><b>＋</b>Neuen Zyklus erstellen</div></button>`;
 }
 $('#presets').onclick = async e => {
-  const k = e.target.dataset.p; if (!k) return; const p = CFG.presets[k];
-  if (!confirm(`Voreinstellung „${p.label}“ anwenden? Aktuelle Werte für Klima und Licht werden überschrieben.`)) return;
-  const today = new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+  const b = e.target.closest('[data-act]'); if (!b) return; const k = b.dataset.p, p = CFG.presets[k];
   try {
-    const r = await api('/api/settings', {climate: p.climate, light: {enabled: true, ...p.light}, grow: {stage: k, start_date: today}});
-    CFG.values = r.values; toast(p.label + ' angewendet ✓'); S = await api('/api/status'); renderAll(true);
-  } catch (er) { toast(er.data ? 'Ungültige Voreinstellung' : er.message, 1); }
+    if (b.dataset.act === 'new') return openEditor(null);
+    if (b.dataset.act === 'edit') return openEditor(p, k);
+    if (b.dataset.act === 'dup') return openEditor({...p, label: p.label + ' (Kopie)', next: ''}, null);
+    if (b.dataset.act === 'del') {
+      if (!confirm(`Zyklus „${p.label}“ löschen?${CFG.values.grow.stage === k ? ' Er ist aktuell aktiv – danach ist kein Zyklus aktiv.' : ''}`)) return;
+      const r = await api('/api/presets/' + encodeURIComponent(k), undefined, false, 'DELETE'); CFG.presets = r.presets; CFG.values = r.values;
+      S = await api('/api/status'); toast('Zyklus gelöscht'); renderAll(true);
+    }
+    if (b.dataset.act === 'apply') {
+      if (!confirm(`Zyklus „${p.label}“ anwenden? Klima-, Licht- und Bewässerungswerte werden überschrieben, der Zyklus startet heute.`)) return;
+      const r = await api('/api/presets/' + encodeURIComponent(k) + '/apply', {}); CFG.values = r.values; CFG.presets = r.presets;
+      toast(p.label + ' angewendet ✓'); S = await api('/api/status'); renderAll(true);
+    }
+  } catch (er) { toast(er.data?.errors ? 'Zyklus ungültig: ' + Object.values(er.data.errors)[0] : er.message, 1); }
 };
+const dlg = $('#dlg');
+dlg.onclick = e => { if (e.target === dlg) dlg.close(); };
+function openEditor(p, id) {
+  const base = p || {}, val = sec => ({...CFG.values[sec], ...(base[sec] || {})});
+  let color = base.color || CFG.colors[0];
+  const others = Object.entries(CFG.presets).filter(([k]) => k !== id);
+  const meta = (k, label, inner) => `<div class="fld" data-s="meta" data-k="${k}"><label>${label}</label>${inner}<div class="err"></div></div>`;
+  const sec = (title, name) => `<div class="sec-t">${title}</div><div class="fgrid">${FORMS[name].fields.map(f => fieldHTML(name, f, val(name)[f.k], true)).join('')}</div>`;
+  dlg.innerHTML = `<form id="ed" novalidate><div class="dlg-h"><h2>${id ? 'Zyklus bearbeiten' : 'Neuer Zyklus'}</h2><span class="sp"></span><button type="button" class="chip" data-x>✕</button></div>
+    <div class="dlg-b"><div class="fgrid">
+      ${meta('label', 'Name', `<div class="ig"><input name="label" maxlength="40" value="${esc(base.label || '')}" placeholder="z. B. Mein Blüte-Rezept"></div>`)}
+      ${meta('color', 'Farbe', `<div class="sw">${CFG.colors.map(c => `<button type="button" data-c="${c}" style="--c:${c}" class="${c === color ? 'on' : ''}"></button>`).join('')}</div>`)}
+      ${meta('days', 'Dauer (0 = unbegrenzt)', `<div class="ig"><input type="number" name="days" min="0" max="365" value="${base.days || 0}"><span>Tage</span></div>`)}
+      ${meta('next', 'Danach automatisch wechseln zu', `<div class="ig"><select name="next"><option value="">– kein Wechsel –</option>${others.map(([k, o]) => `<option value="${k}" ${base.next === k ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>`)}
+    </div>${meta('notes', 'Notizen', `<div class="ig"><input name="notes" maxlength="300" value="${esc(base.notes || '')}" placeholder="optional"></div>`)}
+    ${sec('Klima', 'climate')}${sec('Licht', 'light')}${sec('Bewässerung', 'irrigation')}</div>
+    <div class="dlg-f"><button type="button" class="sec" data-x>Abbrechen</button><button class="pri" type="submit">Speichern</button></div></form>`;
+  const form = $('#ed'); bindVis(form);
+  form.querySelectorAll('[data-x]').forEach(b => b.onclick = () => dlg.close());
+  form.querySelector('.sw').onclick = e => { const c = e.target.dataset.c; if (!c) return; color = c; form.querySelectorAll('.sw button').forEach(b => b.classList.toggle('on', b.dataset.c === c)); };
+  form.onsubmit = async ev => {
+    ev.preventDefault(); form.querySelectorAll('.fld').forEach(e => e.classList.remove('bad')); form.querySelectorAll('.err').forEach(e => e.textContent = '');
+    const body = {label: form.elements.label.value, color, notes: form.elements.notes.value, days: Number(form.elements.days.value) || 0, next: form.elements.next.value};
+    if (id) body.id = id;
+    for (const s of ['climate', 'light', 'irrigation']) { body[s] = {};
+      FORMS[s].fields.forEach(f => { const el = form.elements[`${s}.${f.k}`], t = f.t || 'num'; body[s][f.k] = t === 'bool' ? el.checked : t === 'num' ? parseFloat(el.value) : el.value; }); }
+    try {
+      const r = await api('/api/presets', body); CFG.presets = r.presets; dlg.close();
+      toast(id ? 'Zyklus gespeichert ✓' : 'Zyklus erstellt ✓'); S = await api('/api/status'); renderAll(true);
+    } catch (e) {
+      const errs = e.data?.errors || {}; let first = null;
+      for (const [path, m] of Object.entries(errs)) { const [a, k] = path.includes('.') ? path.split('.') : ['meta', path];
+        const row = form.querySelector(`[data-s="${a}"][data-k="${k}"]`); if (row) { row.classList.add('bad'); row.querySelector('.err').textContent = m; first ||= row; } }
+      first?.scrollIntoView({block: 'center', behavior: 'smooth'});
+      const gen = errs[''] || errs.id; if (gen) alert(gen);
+    }
+  };
+  dlg.showModal(); form.elements.label.focus();
+}
 
 // ---- Alarme, System ----
 const KIND = {alarm: '⚠ Alarm', output: '⏻ Gerät', irrigation: '💧 Gießen', settings: '⚙ Einstellung', mode: '🎛 Modus', system: '▣ System'};

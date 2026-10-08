@@ -22,6 +22,8 @@ async def main(macs, secs=30):
             return
         for mid, data in adv.manufacturer_data.items():
             data = bytes(data)
+            if mid == 0x004C:  # Apple-iBeacon, senden manche Govee-Modelle zusätzlich – ohne Messwerte
+                continue
             if not macs and mid not in GOVEE_IDS and not name.startswith(("GV", "Govee", "ihoment")):
                 continue
             key = (mac, mid, data)

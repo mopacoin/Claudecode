@@ -275,3 +275,89 @@ def watts_for_effect(curve, need, lo, near=5, min_span=10):
         if d1 <= need <= d0:
             return round(w0 if d0 == d1 else w0 + (w1 - w0) * (d0 - need) / (d0 - d1), 1)
     return None
+
+
+# --- Klima-Logik: vorausschauend und nach Wirkung/Kosten abgewogen statt fester Schaltschwellen ---
+
+def slope(points):
+    """Steigung (pro Minute) der Ausgleichsgeraden durch [(minute, wert)] oder None."""
+    n = len(points)
+    if n < 3:
+        return None
+    mx = sum(p[0] for p in points) / n
+    my = sum(p[1] for p in points) / n
+    sxx = sum((p[0] - mx) ** 2 for p in points)
+    return sum((p[0] - mx) * (p[1] - my) for p in points) / sxx if sxx else None
+
+
+def smart_climate(cfg, day, temp, hum, cur, now, ctx):
+    """Entscheidet Heizung, Befeuchter und Entfeuchter anhand von Prognose, gelernter Wirkung und Kosten.
+
+    ctx: trend {"dT": °C/h, "dAH": g/m³/h} (gemessen, None = unbekannt) · devices {rolle: {"power_w", "t", "ah", "n"}}
+    (gelernte Wirkung je Stunde, falls vorhanden) · exhaust {"can_dry", "extra_w"} (kann die Abluft das selbst und was
+    kostet es zusätzlich) · waited_min (so lange setzt die Logik schon auf die Abluft statt auf den Entfeuchter).
+    Gleiches Schaltband wie die feste Hysterese, aber auf den Wert in `lookahead_min` Minuten bezogen: Steigt die Feuchte,
+    geht der Entfeuchter früher an; fällt sie schon, bleibt er aus. -> (want, info)"""
+    base = climate(cfg, day, temp, hum, cur, now, ctx.get("has_dehum", "dehumidifier" in ctx.get("devices", {})))
+    if temp is None or hum is None:
+        return base, {"reasons": {}, "forecast": None}
+    p = "day" if day else "night"
+    tt, th, ht, hh = cfg[f"temp_{p}"], cfg["temp_hyst"], cfg[f"hum_{p}"], cfg["hum_hyst"]
+    tr, devs, ex = ctx.get("trend") or {}, ctx.get("devices", {}), ctx.get("exhaust") or {}
+    h = cfg.get("lookahead_min", 10) / 60
+    ah = abs_hum(temp, hum)
+    tf = temp + (tr.get("dT") or 0) * h
+    hf = min(100.0, max(0.0, rh_at(tf, ah + (tr.get("dAH") or 0) * h)))
+    want, why = dict(base), {}
+
+    # Heizung (Abwärme des Entfeuchters steckt schon im gemessenen Trend)
+    if "heater" in devs:
+        if cur.get("heater"):
+            want["heater"] = not (tf >= tt or temp >= tt + th / 2)
+        else:
+            want["heater"] = tf < tt - th or temp <= tt - 2 * th
+        why["heater"] = f"heizt bis Prognose ≥ {tt:g} °C" if want["heater"] else f"aus – Prognose {tf:.1f} °C reicht"
+
+    # Entfeuchter: Abluft oder Entfeuchter? Nach Leistung gewichtet, Nebenwirkung auf die Temperatur zählt mit
+    prefer_ex = False
+    if "dehumidifier" in devs:
+        d = devs["dehumidifier"]
+        if cur.get("dehumidifier"):
+            on = not (hf <= ht or hum <= ht - hh)
+            msg = f"läuft bis Prognose ≤ {ht:g} %" if on else f"aus – Prognose {hf:.0f} % erreicht Ziel"
+            if on and d.get("ah") is not None and d.get("n", 0) >= 2 and d["ah"] > -0.2:
+                msg += " · zeigt kaum Wirkung (Tank voll?)"
+        elif hum >= ht + 2 * hh:
+            on, msg = True, f"Feuchte {hum:.0f} % weit über Ziel"
+        elif hf > ht + hh:
+            warm = (tf - tt) / max(th, 0.1)  # >0 zu warm, <0 zu kalt
+            heat = d.get("t") if d.get("t") is not None else 1.0  # Entfeuchter heizt (gelernt oder Annahme)
+            cost_d = d.get("power_w", 250) * (1 + 2 * max(0.0, warm) * (heat > 0))
+            if ex.get("can_dry"):
+                cost_e = max(5.0, ex.get("extra_w", 0)) * (1 + 2 * max(0.0, -warm))
+                if cost_e < cost_d and ctx.get("waited_min", 0) < cfg.get("dehum_wait_min", 15):
+                    on, prefer_ex = False, True
+                    msg = f"Abluft entfeuchtet günstiger (≈ +{ex.get('extra_w', 0):.0f} W statt {d.get('power_w', 250):.0f} W)"
+                else:
+                    on = True
+                    msg = (f"Abluft schafft es seit {ctx.get('waited_min', 0):.0f} min nicht – Entfeuchter übernimmt"
+                           if cost_e < cost_d else "Entfeuchter günstiger als Abluft (Temperatur mitgewichtet)")
+            else:
+                on, msg = True, f"Prognose {hf:.0f} % über {ht + hh:g} % – Raumluft zu feucht für Abluft"
+        else:
+            on, msg = False, (f"aus – Feuchte fällt bereits (Prognose {hf:.0f} %)" if hum > ht + hh else "aus – Prognose im Ziel")
+        want["dehumidifier"] = on
+        why["dehumidifier"] = msg
+
+    # Befeuchter: nicht gegen Entfeuchter oder kräftig kühlende Abluft arbeiten
+    if "humidifier" in devs:
+        busy = want.get("dehumidifier") or tf > tt + th
+        if cur.get("humidifier"):
+            on = not (hf >= ht or busy)
+        else:
+            on = (hf < ht - hh or hum <= ht - 2 * hh) and not busy
+        want["humidifier"] = on
+        why["humidifier"] = (f"befeuchtet bis Prognose ≥ {ht:g} %" if on else
+                             "gesperrt – Entfeuchter oder Kühlung aktiv" if busy else "aus – Prognose im Ziel")
+    return want, {"reasons": why, "forecast": {"temp": round(tf, 1), "hum": round(hf, 1), "min": cfg.get("lookahead_min", 10)},
+                  "prefer_exhaust": prefer_ex}

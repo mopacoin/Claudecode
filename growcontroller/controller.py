@@ -24,6 +24,10 @@ MAX_POINTS = 600
 EFF_BIN = 5           # Watt je Wirksamkeits-Fach
 EFF_WIN = 10          # so viele Minuten muss alles ruhig sein, bevor ein Wirksamkeits-Punkt zählt
 EFF_LIGHT_MIN = 30    # nach Licht an/aus so lange warten (Lampenwärme/Verdunstung schwingen erst ein)
+DEV_ROLES = ("dehumidifier", "humidifier", "heater")
+DEV_POWER = {"dehumidifier": 250, "humidifier": 30, "heater": 300}   # Annahme, wenn "power_w" nicht in config.json steht
+DEV_SETTLE_MIN = 3    # Wirkung erst ab Minute 3 nach dem Einschalten messen
+DEV_ON_MIN = 15       # spätestens nach so vielen Minuten Laufzeit auswerten
 EFF_DEVICES = {"dehumidifier": "Entfeuchter", "humidifier": "Befeuchter", "heater": "Heizung"}
 ALARM_TEXT = {
     "temp_high": "Temperatur zu hoch", "temp_low": "Temperatur zu niedrig",
@@ -65,6 +69,8 @@ class Controller:
                        for p in ("day", "night")}
         self._eff = {"min": None, "phase": None, "phase_t": time.monotonic(), "win": deque(maxlen=EFF_WIN), "why": "startet"}
         self.exhaust_ff = {}
+        self.dev_eff = {k: v for k, v in self.saved.get("effect", {}).get("devices", {}).items() if isinstance(v, dict)}
+        self._ep, self._wait, self.smart = {}, None, {"reasons": {}, "forecast": None}
         self._lrn = {"angle": None, "since": 0.0, "last": 0.0, "saved": time.monotonic()}
         self.fresh = {}  # Messwerte genau dieses Regeltakts (ohne veraltete)
         self.readings = {}
@@ -215,8 +221,18 @@ class Controller:
                 # Failsafe: ohne Messwerte Klima-Aktoren aus, Lüfter bleibt zyklisch an
                 want.update(heater=False, humidifier=False, dehumidifier=False, fan=now.minute < 10)
             else:
-                want.update(rules.climate(self.effective_climate(day), day, self.readings.get("temp"),
-                                          self.readings.get("hum"), cur, now, self.has_dehum))
+                cl, r = self.effective_climate(day), self.readings
+                if cl.get("logic", "smart") == "smart":
+                    w, self.smart = rules.smart_climate(cl, day, r.get("temp"), r.get("hum"), cur, now,
+                                                        self._smart_ctx(day, cl["hum_day" if day else "hum_night"]))
+                    want.update(w)
+                    if self.smart.get("prefer_exhaust"):
+                        self._wait = self._wait or time.monotonic()
+                    else:
+                        self._wait = None
+                else:
+                    self.smart = {"reasons": {}, "forecast": None}
+                    want.update(rules.climate(cl, day, r.get("temp"), r.get("hum"), cur, now, self.has_dehum))
             want["pump"] = self._pump(now)
             want["vent"] = want["intake"] = want["fan"]  # ohne stufenlose Abluft: folgen dem Lüfterbedarf
             ex_w, notes = None, []
@@ -249,6 +265,9 @@ class Controller:
                     if not o.proportional:  # stufenlose Abluft wechselt laufend – nicht als EIN/AUS protokollieren
                         self.event("output", f"{n}: {'EIN' if o.state else 'AUS'}")
             self._effect_step(now, day, active)
+            if getattr(self, "_dev_min", None) != (now.hour, now.minute):
+                self._dev_min = (now.hour, now.minute)
+                self._dev_learn(now)
             self._check_alarms()
             self._record(now)
             self._advance(now)
@@ -439,6 +458,100 @@ class Controller:
         out = {p: {"bins": sorted(b.values()), "temp": rules.effect_curve(b, 1), "hum": rules.effect_curve(b, 2)}
                for p, b in self.effect.items()}
         return {**out, "ff": self.exhaust_ff, "why": self._eff["why"], "progress": len(self._eff["win"]), "need": EFF_WIN}
+
+    # --- Wirkung der Schaltgeräte lernen: Trend vorher (aus) gegen Trend danach (an) ---
+    def _trend(self, minutes=10):
+        """Gemessener Trend der letzten Minuten: {"dT": °C/h, "dAH": g/m³/h} oder {} bei zu wenig Daten."""
+        rows = [r for r in self._rows("1h") if "temp" in r and "hum" in r]  # gespeicherter Verlauf + Regeltakt
+        if not rows:
+            return {}
+        t_end = datetime.fromisoformat(rows[-1]["t"])
+        pts = [((datetime.fromisoformat(r["t"]) - t_end).total_seconds() / 60, r) for r in rows]
+        pts = [(m, r) for m, r in pts if m >= -minutes]
+        if not pts or pts[-1][0] - pts[0][0] < minutes / 2:
+            return {}
+        st = rules.slope([(m, r["temp"]) for m, r in pts])
+        sa = rules.slope([(m, rules.abs_hum(r["temp"], r["hum"])) for m, r in pts])
+        if st is None or sa is None:
+            return {}
+        return {"dT": round(max(-20, min(20, st * 60)), 2), "dAH": round(max(-20, min(20, sa * 60)), 2)}
+
+    def _dev_learn(self, now):
+        """1x pro Minute: nach jedem Einschalten die Wirkung messen (Trend 10 min vorher gegen Trend ab Minute 3)."""
+        for n, o in self.outs.items():
+            if o.proportional or o.role not in DEV_ROLES:
+                continue
+            ep = self._ep.get(n)
+            if o.state and ep is None:
+                self._ep[n] = ep = {"on": now, "done": False}
+            if ep and not ep["done"]:
+                dur = (now - ep["on"]).total_seconds() / 60
+                if dur >= DEV_ON_MIN or (not o.state and dur >= DEV_SETTLE_MIN + 6):
+                    ep["done"] = True
+                    self._dev_sample(n, o, ep["on"], now)
+            if not o.state and ep is not None:
+                self._ep.pop(n)
+
+    def _dev_sample(self, name, o, t_on, t_end):
+        rows = [r for r in list(self.minutes) if "temp" in r and "hum" in r]
+        def win(a, b):
+            return [r for r in rows if a <= datetime.fromisoformat(r["t"]) < b]
+        before = win(t_on - timedelta(minutes=10), t_on)
+        after = win(t_on + timedelta(minutes=DEV_SETTLE_MIN), t_end + timedelta(seconds=1))
+        if len(before) < 6 or len(after) < 6:
+            return self._dev_skip(name, "zu wenig Messwerte")
+        if any(r.get(name) for r in before) or not all(r.get(name, 1) for r in after):
+            return self._dev_skip(name, "Gerät hat zwischendurch geschaltet")
+        others = [m for m, x in self.outs.items() if m != name and not x.proportional and x.role not in ("intake", "pump")]
+        if any(len({r.get(m) for r in before + after}) > 1 for m in others):
+            return self._dev_skip(name, "ein anderes Gerät hat geschaltet")
+        light = self.cfg["light"]
+        if len({rules.light_on(light, datetime.fromisoformat(r["t"])) for r in before + after}) > 1:
+            return self._dev_skip(name, "Licht hat geschaltet")
+        def rate(rs, f):
+            t0 = datetime.fromisoformat(rs[0]["t"])
+            return rules.slope([((datetime.fromisoformat(r["t"]) - t0).total_seconds() / 60, f(r)) for r in rs]) * 60
+        temp = lambda r: r["temp"]
+        ah = lambda r: rules.abs_hum(r["temp"], r["hum"])
+        dt, da = rate(after, temp) - rate(before, temp), rate(after, ah) - rate(before, ah)
+        if abs(dt) > 30 or abs(da) > 30:
+            return self._dev_skip(name, "unplausibler Messwert")
+        e = self.dev_eff.get(name, {"t": dt, "ah": da, "n": 0})
+        k = 1 / (min(e["n"], 20) + 1)
+        self.dev_eff[name] = {"t": round(e["t"] + (dt - e["t"]) * k, 2), "ah": round(e["ah"] + (da - e["ah"]) * k, 2),
+                              "n": e["n"] + 1, "last": t_end.isoformat(timespec="minutes"), "skip": None}
+        self.saved.setdefault("effect", {})["devices"] = self.dev_eff
+        settings.save(self._p("settings.json"), self.saved)
+        self.event("system", f"Wirkung {name} gelernt: {dt:+.1f} °C/h, {da:+.1f} g/m³/h")
+
+    def _dev_skip(self, name, why):
+        self.dev_eff.setdefault(name, {"t": None, "ah": None, "n": 0})["skip"] = why
+
+    def _smart_ctx(self, day, h_target):
+        """Alles, was die Klima-Logik zum Abwägen braucht: Trend, Geräte mit Leistung und gelernter Wirkung, Abluft-Reserve."""
+        devs = {}
+        for n, o in self.outs.items():
+            if o.role in DEV_ROLES and o.role not in devs and o.mode == "auto":
+                e = self.dev_eff.get(n, {})
+                devs[o.role] = {"name": n, "power_w": float(o.info.get("power_w", DEV_POWER[o.role])),
+                                "t": e.get("t") if e.get("n") else None, "ah": e.get("ah") if e.get("n") else None, "n": e.get("n", 0)}
+        ex, r = self.cfg["exhaust"], self.readings
+        o = next((x for x in self.outs.values() if x.proportional), None)
+        exi = {"can_dry": False}
+        t, rt, rh = r.get("temp"), r.get("room_temp"), r.get("room_hum")
+        if o and o.mode == "auto" and ex["enabled"] and None not in (t, rt, rh):
+            top = ex["max_w"] if day else ex["max_w_night"]
+            now_w = o.watts if o.watts is not None else ex["min_w"]
+            room_ah, goal_ah = rules.abs_hum(rt, rh), rules.abs_hum(t, h_target)
+            curve = rules.effect_curve(self.effect["day" if day else "night"], 2)
+            if curve:  # gelernt: wie trocken wird das Zelt mit voller Abluft?
+                can = room_ah + rules.effect_at(curve, top) <= goal_ah - 0.3
+                need_w = rules.watts_for_effect(curve, goal_ah - room_ah, ex["min_w"])
+            else:      # noch nichts gelernt: nur bei deutlich trockenerer Raumluft
+                can, need_w = rules.rh_at(t, room_ah) + 5 <= h_target, None
+            exi = {"can_dry": can and now_w < top - 3, "extra_w": round(max(0.0, (need_w or top) - now_w), 1)}
+        return {"trend": self._trend(), "devices": devs, "exhaust": exi, "has_dehum": self.has_dehum,
+                "waited_min": (time.monotonic() - self._wait) / 60 if self._wait else 0}
 
     def start_sweep(self):
         o = next((x for x in self.outs.values() if x.proportional), None)
@@ -692,6 +805,10 @@ class Controller:
                                       "angle": self.sweep["angles"][self.sweep["i"]],
                                       "vals": [round(v, 1) for v in self._lrn.get("vals", [])]} if self.sweep else None,
                             "effect": self._effect_status()},
+                "smart": {**self.smart, "trend": self._trend(), "logic": self.cfg["climate"].get("logic", "smart"),
+                          "devices": {n: {**self.dev_eff.get(n, {"n": 0}), "role": o.role,
+                                          "power_w": float(o.info.get("power_w", DEV_POWER[o.role]))}
+                                      for n, o in self.outs.items() if o.role in DEV_ROLES and not o.proportional}},
                 "stats": self.stats(), "alarms": [{"id": k, **v} for k, v in self.alarms.items()],
                 "grow": {**self._grow_status(g, gday), "starts_in": starts_in},
                 "irrigation": {"last": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),

@@ -128,7 +128,8 @@ dialog::backdrop{background:rgba(0,0,0,.62);backdrop-filter:blur(5px)}
 .lvl{height:6px;border-radius:3px;background:var(--card2);margin:10px 0 2px;overflow:hidden}.lvl i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--acc),var(--acc2));transition:width .5s}
 .calgrid{display:grid;gap:22px;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)}@media(max-width:800px){.calgrid{grid-template-columns:1fr}}
 .effgrid{display:grid;gap:22px;grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:800px){.effgrid{grid-template-columns:1fr}}
-.calsvg{width:100%;height:auto}.calsvg text{font-size:10px;fill:var(--mute)}
+.calsvg{width:100%;height:auto}.srow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr) minmax(0,1.3fr);gap:6px 18px;padding:12px 0;border-top:1px solid var(--line);align-items:start}
+@media(max-width:800px){.srow{grid-template-columns:1fr}}.calsvg text{font-size:10px;fill:var(--mute)}
 input[type=range]{width:100%;accent-color:var(--acc)}
 .pts td{padding:6px 8px}.pts button{background:none;border:0;color:var(--bad);cursor:pointer;font-size:15px}
 /* Tabellen */
@@ -181,6 +182,7 @@ tr+tr td{border-top:1px solid var(--line)}
           <div class="card" id="roomCard" style="display:none"></div>
           <div class="card" id="irrMini"></div>
         </div>
+        <div class="card mt" id="smartCard" style="display:none"></div>
         <div class="card mt">
           <div class="row"><h3 class="sp" style="margin:0">Verlauf</h3><div class="chips" id="rangeChips"></div></div>
           <div class="legend" id="seriesChips" style="margin:14px 0 6px"></div>
@@ -268,8 +270,11 @@ const FORMS = {
     {k: 'vpd_night', l: 'VPD Nacht', u: 'kPa', step: .05, show: ['control', 'vpd']},
     {k: 'vpd_hyst', l: 'VPD-Hysterese', u: '± kPa', step: .05, show: ['control', 'vpd']},
     {k: 'leaf_offset', l: 'Blatt-Temperaturversatz', u: '°C', step: .5},
-    {k: 'fan_min_per_hour', l: 'Lüfter-Grundlauf pro Stunde', u: 'min', step: 1}],
-   hint: 'Im VPD-Modus rechnet der Controller das Ziel-VPD bei der aktuellen Temperatur in eine Feuchte-Vorgabe um. Der Blattversatz (meist −1 … −3 °C) gibt an, wie viel kühler die Blattoberfläche als die Luft ist.'},
+    {k: 'fan_min_per_hour', l: 'Lüfter-Grundlauf pro Stunde', u: 'min', step: 1},
+    {k: 'logic', l: 'Schaltlogik für Entfeuchter, Heizung, Befeuchter', t: 'select', o: [['smart', 'Intelligent (Prognose, Wirkung, Kosten)'], ['static', 'Feste Schaltschwellen']]},
+    {k: 'lookahead_min', l: 'Vorausschau', u: 'min', step: 1, show: ['logic', 'smart']},
+    {k: 'dehum_wait_min', l: 'Entfeuchter übernimmt, wenn die Abluft es nicht schafft, nach', u: 'min', step: 1, show: ['logic', 'smart']}],
+   hint: 'Intelligente Schaltlogik: Statt fester Schwellen zählt der Wert in „Vorausschau“ Minuten (aus dem gemessenen Trend). Steigt die Feuchte schnell, geht der Entfeuchter früher an; fällt sie schon, bleibt er aus. Ist die Raumluft trocken genug, entfeuchtet zuerst die Abluft, wenn das weniger Strom kostet; die Temperatur wird mitgewichtet (zu warm → Abluft, zu kalt → Entfeuchter-Abwärme). Die Wirkung jedes Geräts lernt der Controller selbst (Übersicht → Klima-Logik). Leistungsaufnahme je Gerät optional als "power_w" in config.json. Im VPD-Modus rechnet der Controller das Ziel-VPD bei der aktuellen Temperatur in eine Feuchte-Vorgabe um. Der Blattversatz (meist −1 … −3 °C) gibt an, wie viel kühler die Blattoberfläche als die Luft ist.'},
   light: {title: 'Licht', fields: [
     {k: 'enabled', l: 'Lichtzeitplan aktiv', t: 'bool'}, {k: 'on', l: 'Licht an', t: 'time'}, {k: 'off', l: 'Licht aus', t: 'time'}],
    hint: 'Licht-aus vor Licht-an läuft über Mitternacht. Der Tag/Nacht-Wechsel steuert auch die Klima-Sollwerte.', photo: true},
@@ -593,6 +598,26 @@ function renderCal() {
   $('#swStop')?.addEventListener('click', async () => { try { S = await api('/api/calibration/sweep', {action: 'stop'}); renderAll(); } catch (e) { toast(e.message, 1); } });
 }
 
+// ---- Klima-Logik: Entscheidungen, Prognose, gelernte Wirkung ----
+const ROLE_DE = {dehumidifier: 'Entfeuchter', heater: 'Heizung', humidifier: 'Befeuchter'};
+function renderSmart() {
+  const card = $('#smartCard'), sm = S.smart;
+  card.style.display = sm && Object.keys(sm.devices || {}).length ? '' : 'none'; if (card.style.display) return;
+  const f = sm.forecast, tr = sm.trend || {}, sg = v => (v >= 0 ? '+' : '') + v.toFixed(1);
+  const rows = Object.entries(sm.devices).map(([n, d]) => {
+    const o = S.outputs[n] || {}, why = sm.reasons?.[d.role];
+    const eff = d.n ? `${sg(d.t)} °C/h · ${sg(d.ah)} g/m³/h <span class="sub">(${d.n}×)</span>` : `<span class="sub">noch nicht gelernt${d.skip ? ' – zuletzt: ' + esc(d.skip) : ''}</span>`;
+    return `<div class="srow"><div><b>${esc(n)}</b> <span class="chip ${o.state ? 'on' : ''}" style="margin-left:6px">${o.state ? 'EIN' : 'AUS'}</span>
+        <div class="sub">${ROLE_DE[d.role] || d.role} · ${Math.round(d.power_w)} W${o.mode !== 'auto' ? ` · Hand: ${o.mode === 'on' ? 'Ein' : 'Aus'}` : ''}</div></div>
+      <div>${why ? esc(why) : o.mode !== 'auto' ? '<span class="sub">manuell – Logik pausiert</span>' : '<span class="sub">–</span>'}</div>
+      <div><span class="sub">Wirkung: </span>${eff}</div></div>`; }).join('');
+  card.innerHTML = `<div class="row"><h3 class="sp" style="margin:0">${ico('grid')} Klima-Logik</h3><span class="sub">${sm.logic === 'smart' ? 'intelligent' : 'feste Schwellen'}</span></div>
+    <div class="sub" style="margin:10px 0">${tr.dT != null ? `Trend: <b style="color:var(--temp)">${sg(tr.dT)} °C/h</b> · <b style="color:var(--hum)">${sg(tr.dAH)} g/m³/h</b>` : 'Trend: sammelt noch Messwerte (5 min)'}
+      ${f ? ` · Prognose in ${f.min} min: <b style="color:var(--text)">${f.temp} °C / ${f.hum} %</b>` : ''}</div>
+    <div>${rows}</div>
+    <p class="hint" style="margin:10px 0 0">Gelernte Wirkung: Nach jedem Einschalten vergleicht der Controller den Trend 10 min vorher mit dem Trend ab Minute 3 – nur wenn sonst nichts geschaltet hat und das Licht gleich blieb. Negativ = senkt, positiv = erhöht.</p>`;
+}
+
 // ---- Abluft-Wirksamkeit (gelernt: Abstand Zelt–Raum je Leistung) ----
 function effChart(ph, lo, hi) {
   const t = ph.temp, h = ph.hum, bins = ph.bins;
@@ -785,7 +810,7 @@ $('#tokBtn').onclick = () => { const t = prompt('Neues Token (leer = löschen):'
 // ---- Hauptschleife ----
 let built = false;
 function renderAll(rebuild) {
-  renderHeader(); renderOverview(); renderDevices(); renderAlarms(); renderSystem(); renderPresets(); renderEffect();
+  renderHeader(); renderOverview(); renderDevices(); renderAlarms(); renderSystem(); renderPresets(); renderEffect(); renderSmart();
   if (!built || rebuild) { Object.keys(FORMS).forEach(buildForm); built = true; }
 }
 async function poll() {

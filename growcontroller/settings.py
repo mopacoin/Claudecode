@@ -15,6 +15,7 @@ SPEC = {
         "hum_day": ("num", 10, 95), "hum_night": ("num", 10, 95), "hum_hyst": ("num", 1, 20),
         "vpd_day": ("num", 0.2, 2.5), "vpd_night": ("num", 0.2, 2.5), "vpd_hyst": ("num", 0.05, 0.5),
         "leaf_offset": ("num", -5, 0), "fan_min_per_hour": ("int", 0, 60),
+        "logic": ("enum", ["smart", "static"]), "lookahead_min": ("int", 0, 60), "dehum_wait_min": ("int", 0, 120),
     },
     "light": {"enabled": ("bool",), "on": ("time",), "off": ("time",)},
     "irrigation": {
@@ -39,7 +40,8 @@ SPEC = {
 DEFAULTS = {
     "climate": {"control": "temp_hum", "temp_day": 25, "temp_night": 20, "temp_hyst": 1.0,
                 "hum_day": 60, "hum_night": 55, "hum_hyst": 5, "vpd_day": 1.0, "vpd_night": 0.9,
-                "vpd_hyst": 0.1, "leaf_offset": -2.0, "fan_min_per_hour": 5},
+                "vpd_hyst": 0.1, "leaf_offset": -2.0, "fan_min_per_hour": 5,
+                "logic": "smart", "lookahead_min": 10, "dehum_wait_min": 15},
     "light": {"enabled": True, "on": "06:00", "off": "00:00"},
     "irrigation": {"enabled": True, "interval_min": 720, "duration_s": 30, "from_hour": 6, "to_hour": 22},
     "alarms": {"enabled": True, "temp_min": 15, "temp_max": 32, "hum_min": 30, "hum_max": 80, "delay_min": 10},

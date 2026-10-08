@@ -34,6 +34,17 @@ Läuft im Controller selbst (keine externen Bibliotheken, funktioniert offline),
   Daraus ergibt sich die Leistung, die das Ziel bei der aktuellen Raumluft hält (**Vorsteuerung**); die Abluft regelt um diesen
   Wert herum statt immer ab Grundlast – ohne bleibende Abweichung. Ist das Ziel laut Lernkurve nicht erreichbar oder zu wenig
   gelernt, bleibt es beim bisherigen Regler. Abschaltbar (`learn_effect`, `use_effect`), Lernstand in `data/settings.json`.
+- **Klima-Logik (Übersicht):** Entfeuchter, Heizung und Befeuchter schalten nicht an festen Schwellen, sondern nach dem Wert
+  in `lookahead_min` (10) Minuten, berechnet aus dem gemessenen Trend (Ausgleichsgerade über 10 min, Feuchte als absolute Feuchte).
+  Gleiches Schaltband wie bisher, aber vorausschauend: steigt die Feuchte schnell, geht der Entfeuchter früher an; fällt sie schon,
+  bleibt er aus; er stoppt, sobald die Prognose das Ziel erreicht. Ist die Raumluft trocken genug, wird abgewogen, ob die Abluft
+  günstiger entfeuchtet (Zusatz-Watt laut gelernter Abluft-Wirksamkeit gegen `power_w` des Entfeuchters, Standard 250 W);
+  die Temperatur zählt mit (zu warm → Abluft, die kühlt; zu kalt → Entfeuchter, dessen Abwärme hilft). Schafft die Abluft es
+  nach `dehum_wait_min` (15) nicht, übernimmt der Entfeuchter; weit über Ziel (Soll + 2 × Hysterese) läuft er immer.
+  **Wirkung je Gerät** wird gelernt: Nach jedem Einschalten vergleicht der Controller den Trend der 10 min davor mit dem Trend
+  ab Minute 3 (nur wenn kein anderes Gerät und nicht das Licht geschaltet hat) → °C/h und g/m³/h je Gerät. Zeigt der Entfeuchter
+  kaum Wirkung, steht „Tank voll?“ in der Begründung. Jede Entscheidung wird im Klartext angezeigt. `logic: "static"` = alte
+  feste Schwellen. Leistungsaufnahme je Ausgang optional als `"power_w"` in `config.json`.
 - **Licht:** Zeitplan inkl. Schnellwahl 18/6, 20/4, 16/8, 12/12 · **Bewässerung:** Intervall, Dauer, Zeitfenster
 - **Alarme:** Grenzwerte mit Verzögerung; Sensor-/Geräteausfall; aktive Alarme im Kopf der Seite
 - **Zyklen:** Wachstumsphasen mit Tageszähler und Fortschrittsbalken. Zu den eingebauten Richtwerten (Keimling, Wachstum, Blüte,

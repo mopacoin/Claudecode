@@ -21,7 +21,9 @@ Läuft im Controller selbst (keine externen Bibliotheken, funktioniert offline),
   Die Watt werden über eine **Kennlinie aus Lernpunkten** (Winkel → gemessene Watt, linear interpoliert) in den Servo-Winkel
   umgerechnet. Kalibrieren unter Geräte → „Abluft kalibrieren“: Winkel anfahren, Leistung eintragen, speichern.
   Startwerte: 0° = 20 W, 90° = 25 W, 180° = 85 W. Mit Raum-Sensor regelt sie nur auf das per Raumluft Erreichbare
-  (Zelt ≥ Raumtemperatur + Abstand; Feuchte über absolute Feuchte) und zeigt einen Hinweis, wenn das Ziel so nicht erreichbar ist. Gerät „Ein“ = Maximum, „Aus“ = Grundlast.
+  (Zelt ≥ Raumtemperatur + Abstand; Feuchte über absolute Feuchte) und zeigt einen Hinweis, wenn das Ziel so nicht erreichbar ist.
+  **Gerätekopplung (Interlock):** Läuft der Entfeuchter, entfeuchtet die Abluft nicht mit (Stufe 2: hilft erst, wenn er nach
+  20 min nicht hinterherkommt); Befeuchter/Heizung an → Abluft auf Grundlast; Temperatur hat Vorrang; sanfte Rampe (15 W/min). Gerät „Ein“ = Maximum, „Aus“ = Grundlast.
 - **Licht:** Zeitplan inkl. Schnellwahl 18/6, 20/4, 16/8, 12/12 · **Bewässerung:** Intervall, Dauer, Zeitfenster
 - **Alarme:** Grenzwerte mit Verzögerung; Sensor-/Geräteausfall; aktive Alarme im Kopf der Seite
 - **Zyklen:** Wachstumsphasen mit Tageszähler und Fortschrittsbalken. Zu den eingebauten Richtwerten (Keimling, Wachstum, Blüte,

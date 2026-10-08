@@ -29,6 +29,8 @@ SPEC = {
         "enabled": ("bool",), "min_w": ("num", 0, 1000), "max_w": ("num", 0, 1000), "max_w_night": ("num", 0, 1000),
         "temp_band": ("num", 0.5, 10), "hum_band": ("num", 1, 30), "deadband_deg": ("int", 1, 20),
         "room_aware": ("bool",), "room_margin": ("num", 0, 5),
+        "interlock_dehum": ("bool",), "interlock_hum": ("bool",), "interlock_heat": ("bool",), "temp_priority": ("bool",),
+        "dehum_assist_min": ("int", 0, 240), "ramp_w_min": ("num", 0, 500),
     },
     "grow": {"stage": ("str", 40), "start_date": ("date",)},  # stage = Zyklus-ID (eingebaut oder eigen), "" = keiner
 }
@@ -41,7 +43,8 @@ DEFAULTS = {
     "irrigation": {"enabled": True, "interval_min": 720, "duration_s": 30, "from_hour": 6, "to_hour": 22},
     "alarms": {"enabled": True, "temp_min": 15, "temp_max": 32, "hum_min": 30, "hum_max": 80, "delay_min": 10},
     "exhaust": {"enabled": True, "min_w": 22, "max_w": 85, "max_w_night": 60, "temp_band": 3, "hum_band": 10, "deadband_deg": 3,
-                "room_aware": True, "room_margin": 0.5},
+                "room_aware": True, "room_margin": 0.5, "interlock_dehum": True, "interlock_hum": True,
+                "interlock_heat": True, "temp_priority": True, "dehum_assist_min": 20, "ramp_w_min": 15},
     "grow": {"stage": "", "start_date": ""},
 }
 

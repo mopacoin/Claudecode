@@ -240,3 +240,36 @@ class TestHistoryFiles(unittest.TestCase):
                 if os.path.basename(p) != f"log-{day}-b.csv":
                     self.assertTrue(all(len(r) == len(rows[0]) for r in rows), p)
             c.shutdown()
+
+
+class TestInterlock(unittest.TestCase):
+    EX = {**settings.DEFAULTS["exhaust"]}
+
+    def test_dehumidifier_blocks_humidity_exhaust(self):
+        free, _ = rules.exhaust_plan(self.EX, True, 25, 70, 25, 60)
+        w, notes = rules.exhaust_plan(self.EX, True, 25, 70, 25, 60, active={"dehumidifier"}, dehum_min=5)
+        self.assertEqual(free, self.EX["max_w"]); self.assertEqual(w, self.EX["min_w"])
+        self.assertEqual(notes[0]["dev"], "dehumidifier")
+
+    def test_dehumidifier_assist_stage2(self):
+        w, notes = rules.exhaust_plan(self.EX, True, 25, 75, 25, 60, active={"dehumidifier"}, dehum_min=25)
+        self.assertGreater(w, self.EX["min_w"]); self.assertTrue(notes[0]["assist"])
+        w2, _ = rules.exhaust_plan(self.EX, True, 25, 66, 25, 60, active={"dehumidifier"}, dehum_min=25)
+        self.assertEqual(w2, self.EX["min_w"])  # nur leicht drüber: Entfeuchter allein
+
+    def test_temperature_priority(self):
+        w, _ = rules.exhaust_plan(self.EX, True, 28, 70, 25, 60, active={"dehumidifier"})
+        self.assertEqual(w, self.EX["max_w"])
+        w, _ = rules.exhaust_plan({**self.EX, "temp_priority": False}, True, 28, 70, 25, 60, active={"dehumidifier"})
+        self.assertEqual(w, self.EX["min_w"])
+
+    def test_humidifier_and_heater(self):
+        self.assertEqual(rules.exhaust_watts(self.EX, True, 24, 40, 25, 60, active={"heater"}), self.EX["min_w"])
+        self.assertEqual(rules.exhaust_watts(self.EX, True, 25, 50, 25, 60, active={"humidifier"}), self.EX["min_w"])
+        self.assertEqual(rules.exhaust_watts({**self.EX, "interlock_dehum": False}, True, 25, 70, 25, 60, active={"dehumidifier"}), self.EX["max_w"])
+
+    def test_ramp(self):
+        self.assertEqual(rules.ramp(None, 80, 5), 80)
+        self.assertEqual(rules.ramp(30, 80, 5), 35)
+        self.assertEqual(rules.ramp(80, 30, 5), 75)
+        self.assertEqual(rules.ramp(30, 80, 0), 80)

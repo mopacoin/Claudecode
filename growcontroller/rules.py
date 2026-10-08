@@ -118,7 +118,7 @@ def rh_at(t, ah):
     return ah * (273.15 + t) / (6.112 * math.exp(17.67 * t / (t + 243.5)) * 2.1674)
 
 
-def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None):
+def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None, active=(), dehum_min=0):
     """Abluft-Leistung in W + Hinweise, was per Abluft nicht erreichbar ist.
 
     Abluft zieht Raumluft nach: Das Zelt kann nicht kühler als der Raum (+ Abstand) und nicht
@@ -139,8 +139,34 @@ def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=No
                 notes.append({"key": "hum", "floor": round(min(floor_h, 100), 1), "room": room_h, "useless": floor_h >= hum})
     ft = _clamp((temp - t_goal) / cfg["temp_band"]) if temp is not None else 0
     fh = _clamp((hum - h_goal) / cfg["hum_band"]) if hum is not None else 0
+    # Gerätekopplung (Interlock): Abluft arbeitet nicht gegen Entfeuchter, Befeuchter oder Heizung.
+    keep_t = cfg.get("temp_priority", True)  # zu heiß -> Abluft darf trotzdem hoch
+    if "dehumidifier" in active and cfg.get("interlock_dehum", True):
+        assist = cfg.get("dehum_assist_min", 20)
+        # Stufe 2: Entfeuchter kommt nach `assist` Minuten nicht hinterher -> Abluft hilft beim Rest über Soll + Band
+        if assist and dehum_min >= assist and hum is not None and hum > h_goal + cfg["hum_band"]:
+            fh = _clamp((hum - h_goal - cfg["hum_band"]) / cfg["hum_band"])
+            notes.append({"key": "interlock", "dev": "dehumidifier", "assist": True})
+        else:
+            fh = 0
+            notes.append({"key": "interlock", "dev": "dehumidifier", "assist": False})
+        if not keep_t:
+            ft = 0
+    for dev, opt in (("humidifier", "interlock_hum"), ("heater", "interlock_heat")):
+        if dev in active and cfg.get(opt, True):
+            fh = 0
+            if not keep_t or dev == "heater":  # Heizung läuft = es ist zu kalt, Temperaturbedarf entfällt ohnehin
+                ft = 0
+            notes.append({"key": "interlock", "dev": dev, "assist": False})
     return round(lo + (max(hi, lo) - lo) * max(ft, fh), 1), notes
 
 
-def exhaust_watts(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None):
-    return exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t, room_h)[0]
+def exhaust_watts(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None, active=(), dehum_min=0):
+    return exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t, room_h, active, dehum_min)[0]
+
+
+def ramp(prev, target, max_step):
+    """Begrenzt die Änderung pro Regeltakt (sanfte Rampe statt Sprüngen)."""
+    if prev is None or max_step <= 0:
+        return target
+    return prev + max(-max_step, min(max_step, target - prev))

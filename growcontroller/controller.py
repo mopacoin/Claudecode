@@ -34,6 +34,7 @@ class Controller:
         self.sensors = {n: (c.get("prefix", ""), sensors.create(c)) for n, c in cfg["sensors"].items()}
         self._warned = {}
         self.exhaust_notes = []
+        self._on_since = {}  # Rolle -> seit wann an (monotonic), für Entfeuchter-Stufe 2
         self.gpio, self.outs, self.hubs = outputs.create_all(cfg)
         self.has_dehum = any(o.role == "dehumidifier" for o in self.outs.values())
         for n, m in self.saved.get("modes", {}).items():
@@ -157,6 +158,14 @@ class Controller:
             cur = {}
             for o in self.outs.values():
                 cur[o.role] = cur.get(o.role, False) or o.state
+            mono = time.monotonic()
+            for role, on in cur.items():
+                if on:
+                    self._on_since.setdefault(role, mono)
+                else:
+                    self._on_since.pop(role, None)
+            active = {r for r, on in cur.items() if on}
+            dehum_min = (mono - self._on_since["dehumidifier"]) / 60 if "dehumidifier" in self._on_since else 0
             want = {"light": day and self.cfg["light"]["enabled"]}
             if self.stale():
                 # Failsafe: ohne Messwerte Klima-Aktoren aus, Lüfter bleibt zyklisch an
@@ -172,7 +181,7 @@ class Controller:
                 cl = self.effective_climate(day)
                 r = self.readings
                 ex_w, notes = rules.exhaust_plan(self.cfg["exhaust"], day, r.get("temp"), r.get("hum"), cl[f"temp_{p}"], cl[f"hum_{p}"],
-                                                 r.get("room_temp"), r.get("room_hum"))
+                                                 r.get("room_temp"), r.get("room_hum"), active, dehum_min)
             self._exhaust_notes(notes)
             for n, o in self.outs.items():
                 if o.proportional:
@@ -200,11 +209,17 @@ class Controller:
                 w = top if want.get(o.role) else ex["min_w"]
             else:
                 w = top if ex_w is None else ex_w  # ohne Messwerte: lüften
+            if o.mode == "auto":  # sanfte Rampe nur in der Automatik; manuelle Befehle wirken sofort
+                dt = time.monotonic() - getattr(o, "_ramp_t", time.monotonic())
+                w = rules.ramp(o.watts, w, ex.get("ramp_w_min", 0) * max(dt, 0) / 60)
+            o._ramp_t = time.monotonic()
             o.apply_level(rules.angle_for_watts(self.cal, w), round(w, 1), ex["deadband_deg"])
         o.state = o.watts is not None and o.watts > ex["min_w"] + 0.5
 
     def _exhaust_notes(self, notes):
         """Hinweis ins Ereignisprotokoll, wenn die Raumluft eine Grenze setzt (nur bei Änderung)."""
+        notes_all, notes = notes, [n for n in notes if n["key"] in ("temp", "hum")]
+        self.exhaust_interlock = [n for n in notes_all if n["key"] == "interlock"]
         old = {n["key"] for n in self.exhaust_notes}
         new = {n["key"] for n in notes}
         what = {"temp": "Temperatur", "hum": "Luftfeuchte"}
@@ -376,7 +391,7 @@ class Controller:
                 "readings": self.readings, "vpd": self.vpd(), "stale": self.stale(), "is_day": day,
                 "targets": {"temp": cl[f"temp_{p}"], "hum": cl[f"hum_{p}"], "vpd": self.cfg["climate"][f"vpd_{p}"],
                             "control": cl["control"]},
-                "exhaust": {"notes": self.exhaust_notes},
+                "exhaust": {"notes": self.exhaust_notes, "interlock": getattr(self, "exhaust_interlock", [])},
                 "stats": self.stats(), "alarms": [{"id": k, **v} for k, v in self.alarms.items()],
                 "grow": self._grow_status(g, gday),
                 "irrigation": {"last": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),

@@ -284,8 +284,13 @@ const FORMS = {
     {k: 'max_w', l: 'Maximum Tag', u: 'W', step: 1}, {k: 'max_w_night', l: 'Maximum Nacht (leiser)', u: 'W', step: 1},
     {k: 'temp_band', l: 'Volle Leistung ab Temperatur Soll +', u: '°C', step: .5}, {k: 'hum_band', l: 'Volle Leistung ab Feuchte Soll +', u: '%', step: 1},
     {k: 'deadband_deg', l: 'Servo erst bewegen ab', u: '° Änderung', step: 1},
-    {k: 'room_aware', l: 'Raumklima berücksichtigen', t: 'bool'}, {k: 'room_margin', l: 'Zelt bleibt mindestens wärmer als Raum um', u: '°C', step: .1}],
-   hint: 'Die Abluft läuft immer mit Grundlast und steigt gleitend bis zum Maximum, je weiter Temperatur oder Feuchte über dem Soll liegen. Die Watt werden über die Kennlinie (Geräte → Abluft kalibrieren) in den Servo-Winkel umgerechnet. Ohne stufenlose Regelung läuft sie nur zwischen Grundlast und Maximum. Mit „Raumklima berücksichtigen“ dreht sie nicht sinnlos hoch, wenn die Raumluft selbst zu warm oder zu feucht ist (braucht einen Raum-Sensor).'},
+    {k: 'room_aware', l: 'Raumklima berücksichtigen', t: 'bool'}, {k: 'room_margin', l: 'Zelt bleibt mindestens wärmer als Raum um', u: '°C', step: .1},
+    {k: 'interlock_dehum', l: 'Entfeuchter läuft → Abluft entfeuchtet nicht mit', t: 'bool'},
+    {k: 'dehum_assist_min', l: 'Abluft hilft dem Entfeuchter nach (0 = nie)', u: 'min', step: 1},
+    {k: 'interlock_hum', l: 'Befeuchter läuft → Abluft auf Grundlast', t: 'bool'}, {k: 'interlock_heat', l: 'Heizung läuft → Abluft auf Grundlast', t: 'bool'},
+    {k: 'temp_priority', l: 'Temperatur hat Vorrang (zu heiß → Abluft darf trotzdem hoch)', t: 'bool'},
+    {k: 'ramp_w_min', l: 'Sanfte Rampe: max. Änderung (0 = aus)', u: 'W/min', step: 1}],
+   hint: 'Die Abluft läuft immer mit Grundlast und steigt gleitend bis zum Maximum, je weiter Temperatur oder Feuchte über dem Soll liegen. Die Watt werden über die Kennlinie (Geräte → Abluft kalibrieren) in den Servo-Winkel umgerechnet. Ohne stufenlose Regelung läuft sie nur zwischen Grundlast und Maximum. Mit „Raumklima berücksichtigen“ dreht sie nicht sinnlos hoch, wenn die Raumluft selbst zu warm oder zu feucht ist (braucht einen Raum-Sensor). Die Gerätekopplung verhindert, dass Abluft und Entfeuchter, Befeuchter oder Heizung gegeneinander arbeiten – wie der Interlock bei Profi-Controllern. Sie greift für Geräte, die dieser Controller schaltet.'},
   grow: {title: 'Zyklus wechseln', fields: [
     {k: 'stage', l: 'Aktiver Zyklus', t: 'select', dyn: true},
     {k: 'start_date', l: 'Start des Zyklus', t: 'date'}]},
@@ -499,6 +504,8 @@ function stateText(o) {
   if (!o.proportional) return o.state ? 'Läuft' : 'Aus';
   if (o.mode === 'manual') return '<span style="color:var(--warn)">Kalibrier-Test</span>';
   if (o.watts == null) return '–';
+  const il = (S.exhaust?.interlock || [])[0], dev = {dehumidifier: 'Entfeuchter', humidifier: 'Befeuchter', heater: 'Heizung'};
+  if (il && o.mode === 'auto') return `<span style="color:var(--warn)">${il.assist ? 'hilft ' + dev[il.dev] : 'gekoppelt: ' + dev[il.dev] + ' läuft'}</span>`;
   return o.watts <= CFG.values.exhaust.min_w + 0.5 ? 'Grundlast' : (S.is_day ? o.watts >= CFG.values.exhaust.max_w - 0.5 : o.watts >= CFG.values.exhaust.max_w_night - 0.5) ? 'Maximum' : 'Regelt';
 }
 function renderDevices() {

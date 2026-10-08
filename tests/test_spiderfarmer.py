@@ -37,3 +37,13 @@ class TestSpiderFarmer(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBleAssembler(unittest.TestCase):
+    def test_fragments(self):
+        from growcontroller.spiderfarmer_ble import JsonAssembler
+        a = JsonAssembler()
+        msg = json.dumps({"method": "getDevSta", "data": {"outlet": {"O1": {"on": 1}}, "x": "a}b{c"}})
+        self.assertEqual(a.feed(b"\x01\x02" + msg[:20].encode()), [])
+        self.assertEqual(a.feed(msg[20:].encode() + b'{"code":2'), [json.loads(msg)])
+        self.assertEqual(a.feed(b"00}"), [{"code": 200}])

@@ -82,6 +82,7 @@ class TestDevices(unittest.TestCase):
 
         class Dev:
             def __init__(s, v): s.v = v
+            def status(s): return {"Error": "x"} if s.v == 3.3 else {"dps": {"2": 0}}
             def set_value(s, dp, val):
                 calls.append((s.v, dp, val))
                 return {"Error": "x"} if s.v == 3.3 else {"dps": {}}
@@ -91,3 +92,23 @@ class TestDevices(unittest.TestCase):
         t._device = lambda v: Dev(v)
         t._send(True); t._send(False)
         self.assertEqual(calls, [(3.3, 2, 30), (3.4, 2, 30), (3.4, 2, 65)])
+
+
+class TestTuyaNoRewrite(unittest.TestCase):
+    def test_skip_write_when_value_matches(self):
+        writes, state = [], {"2": 65}
+
+        class Dev:
+            def status(s): return {"dps": dict(state)}
+            def set_value(s, dp, val): writes.append(val); state[str(dp)] = val; return {"dps": {}}
+
+        t = backends.TuyaBackend.__new__(backends.TuyaBackend)
+        t.cfg, t.versions, t.dp, t.value_on, t.value_off, t.dev = ("id", "1.2.3.4", "k"), [3.4], 2, 30, 65, None
+        t._device = lambda v: Dev()
+        t._send(False)                      # steht schon auf 65 -> kein Schreiben (kein Piepen)
+        self.assertEqual(writes, [])
+        t._send(True); t._send(True)        # einmal schreiben, danach steht es richtig
+        self.assertEqual(writes, [30])
+        state["2"] = 65                     # jemand stellt am Gerät um -> wird korrigiert
+        t._send(True)
+        self.assertEqual(writes, [30, 30])

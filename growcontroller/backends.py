@@ -184,6 +184,10 @@ class TuyaBackend(WorkerBackend):
         for v in ([self.versions[0]] if self.dev else self.versions):
             dev = self.dev or self._device(v)
             try:
+                st = dev.status()  # erst lesen: Schreiben quittieren manche Geräte mit einem Piepen
+                if isinstance(st, dict) and st.get("dps", {}).get(str(self.dp), object()) == value:
+                    self.dev, self.versions = dev, [v]
+                    return  # steht schon richtig -> nichts schreiben
                 res = dev.set_value(self.dp, value)
             except OSError as e:
                 if e.errno == 98:  # Port der LAN-Suche belegt (meist Node-RED)

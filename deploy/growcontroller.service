@@ -6,7 +6,7 @@ After=network.target
 EnvironmentFile=-/home/pi/Claudecode/.env
 User=pi
 WorkingDirectory=/home/pi/Claudecode
-ExecStart=/usr/bin/python3 -m growcontroller -c config.json --data data
+ExecStart=/home/pi/Claudecode/.venv/bin/python -m growcontroller -c config.json --data data
 Restart=always
 RestartSec=5
 

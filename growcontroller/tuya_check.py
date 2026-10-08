@@ -30,7 +30,8 @@ def main(name="dehumidifier", cfg_path="config.json"):
             dp = str(o.get("dp", 1))
             print(f"DP {dp} (geschaltet vom Controller) steht auf: {st['dps'].get(dp)!r}"
                   f"  – AN = {o.get('value_on', True)!r}, AUS = {o.get('value_off', False)!r}")
-            print(f'Tipp: in config.json "version": {v} eintragen.')
+            if str(o.get("version", "auto")) == "auto":
+                print(f'Tipp: in config.json "version": {v} eintragen.')
             return
         print(f"Protokoll {v}: {st.get('Error') if isinstance(st, dict) else st}")
     raise SystemExit("Keine Verbindung. IP/local_key richtig? Hält Node-RED noch eine Tuya-Verbindung?")

@@ -509,7 +509,7 @@ function renderDevices() {
       ${o.proportional && o.watts != null ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${Math.round(o.watts)} W</b><span class="sub">${o.angle}° Servo · ${Math.round(exShare(o.watts) * 100)} % Leistung</span></div>
         <div class="lvl"><i style="width:${exShare(o.watts) * 100}%"></i></div>` : ''}
       <div class="info">${esc(info)}</div>
-      <div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${{auto: 'Auto', on: 'Ein', off: 'Aus'}[m]}</button>`).join('')}</div></div>`;
+      <div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${(o.proportional ? {auto: 'Auto', on: 'Maximum', off: 'Grundlast'} : {auto: 'Auto', on: 'Ein', off: 'Aus'})[m]}</button>`).join('')}</div></div>`;
   }).join('');
   renderCal();
   const i = S.irrigation, f = t => t ? t.replace('T', ' ').slice(5, 16) : '–';

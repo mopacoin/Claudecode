@@ -13,6 +13,9 @@ from . import outputs, rules, sensors, settings
 
 log = logging.getLogger("grow")
 RANGES = {"1h": 1, "6h": 6, "24h": 24, "7d": 168}
+LEARN_BIN = 10        # Grad je Lernpunkt-Fach
+SETTLE_S = 20         # so lange muss der Servo stillstehen, bevor gemessen wird (Lüfter läuft ein)
+SWEEP_STEP = 15       # Schrittweite der automatischen Kalibrierung
 MAX_POINTS = 600
 ALARM_TEXT = {
     "temp_high": "Temperatur zu hoch", "temp_low": "Temperatur zu niedrig",
@@ -41,6 +44,10 @@ class Controller:
             if n in self.outs and m in ("auto", "on", "off"):
                 self.outs[n].mode = m
         self.cal = settings.validate_cal(self.saved.get("servo_cal"))[0] or settings.DEFAULT_CAL
+        self.learn = {k: v for k, v in self.saved.get("servo_learn", {}).items() if isinstance(v, list) and len(v) == 3}
+        self.sweep = None
+        self._lrn = {"angle": None, "since": 0.0, "last": 0.0, "saved": time.monotonic()}
+        self.fresh = {}  # Messwerte genau dieses Regeltakts (ohne veraltete)
         self.readings = {}
         self.last_ok = None
         self.live = deque(maxlen=720)            # letzte Stunde im Regeltakt
@@ -128,6 +135,7 @@ class Controller:
                 if now - self._warned.get(name, -1e9) > 60:  # höchstens 1x pro Minute ins Log
                     self._warned[name] = now
                     log.warning("Sensor %s: %s", name, e)
+        self.fresh = merged
         if merged:
             self.readings.update(merged)
         if main:  # nur der Regel-Sensor zählt für "Sensordaten aktuell"
@@ -215,6 +223,7 @@ class Controller:
             o._ramp_t = time.monotonic()
             o.apply_level(rules.angle_for_watts(self.cal, w), round(w, 1), ex["deadband_deg"])
         o.state = o.watts is not None and o.watts > ex["min_w"] + 0.5
+        self._learn_step(o)
 
     def _exhaust_notes(self, notes):
         """Hinweis ins Ereignisprotokoll, wenn die Raumluft eine Grenze setzt (nur bei Änderung)."""
@@ -231,6 +240,85 @@ class Controller:
             self.event("system", f"{what[k]}-Ziel per Abluft wieder erreichbar")
         self.exhaust_notes = notes
 
+    # --- Kennlinie automatisch lernen (Leistungsmessung an der Abluft-Steckdose, Sensor-Prefix "exhaust_") ---
+    def _learn_step(self, o):
+        mono, w = time.monotonic(), self.fresh.get("exhaust_w")
+        L = self._lrn
+        if o.angle != L["angle"]:
+            L["angle"], L["since"] = o.angle, mono
+            if self.sweep:
+                self.sweep["vals"] = []
+            return
+        settled = mono - L["since"] >= SETTLE_S
+        if self.sweep:
+            self._sweep_step(o, mono, w if settled else None)
+        elif settled and w is not None and o.mode == "auto" and self.cfg["exhaust"].get("auto_learn", True) \
+                and mono - L["last"] >= 30:
+            L["last"] = mono
+            self._add_sample(o.angle, w)
+            if mono - L["saved"] > 600:  # Lernstand höchstens alle 10 min speichern (SD-Karte schonen)
+                self._save_learn(rebuild=True)
+
+    def _add_sample(self, angle, w, weight=1):
+        key = str(int(round(angle / LEARN_BIN) * LEARN_BIN))
+        a0, w0, n = self.learn.get(key, [angle, w, 0])
+        k = weight / (min(n, 20) + weight)  # gleitender Mittelwert, neue Werte zählen weiter mit
+        self.learn[key] = [round(a0 + (angle - a0) * k, 1), round(w0 + (w - w0) * k, 2), n + weight]
+        if n < 3 <= n + weight:  # neues Fach verlässlich -> Kennlinie neu bauen
+            self._save_learn(rebuild=True)
+
+    def _save_learn(self, rebuild=False):
+        if rebuild:
+            pts, err = settings.validate_cal(rules.learned_curve(self.learn, self.cal))
+            if not err and pts != self.cal:
+                self.cal = pts
+                self.saved["servo_cal"] = pts
+        self.saved["servo_learn"] = self.learn
+        settings.save(self._p("settings.json"), self.saved)
+        self._lrn["saved"] = time.monotonic()
+
+    def start_sweep(self):
+        o = next((x for x in self.outs.values() if x.proportional), None)
+        if not o:
+            raise ValueError("Kein stufenloser Abluft-Servo konfiguriert")
+        if self.fresh.get("exhaust_w") is None:
+            raise ValueError("Keine Leistungsmessung der Abluft (Sensor mit prefix \"exhaust_\")")
+        with self.lock:
+            self.sweep = {"out": o.name, "angles": list(range(0, 181, SWEEP_STEP)), "i": 0, "vals": [],
+                          "started": time.monotonic(), "step_t": time.monotonic(), "points": []}
+            o.mode, o.manual_angle = "manual", 0
+            self.event("settings", "Automatische Abluft-Kalibrierung gestartet")
+
+    def stop_sweep(self, msg="abgebrochen"):
+        with self.lock:
+            if not self.sweep:
+                return
+            o = self.outs[self.sweep["out"]]
+            o.mode, o.manual_angle = "auto", None
+            self.sweep = None
+            self.event("settings", f"Abluft-Kalibrierung {msg}")
+
+    def _sweep_step(self, o, mono, w):
+        sw = self.sweep
+        if w is not None:
+            sw["vals"].append(w)
+        if len(sw["vals"]) >= 3:
+            vals = sorted(sw["vals"])
+            sw["points"].append([o.angle, round(vals[1], 1)])  # Median aus 3 Messungen
+            sw["i"] += 1
+            if sw["i"] >= len(sw["angles"]):
+                self.learn = {str(a): [a, w_, 5] for a, w_ in sw["points"]}  # Messfahrt ersetzt alte Lernpunkte
+                pts, err = settings.validate_cal(rules.learned_curve(self.learn, []))
+                if not err:
+                    self.cal = pts
+                    self.saved["servo_cal"] = pts
+                self._save_learn()
+                self.stop_sweep("abgeschlossen: " + ", ".join(f"{a}°={w_:g} W" for a, w_ in self.cal))
+                return
+            o.manual_angle, sw["vals"], sw["step_t"] = sw["angles"][sw["i"]], [], mono
+        elif mono - sw["step_t"] > 120:
+            self.stop_sweep("abgebrochen: keine Leistungsmesswerte")
+
     def set_calibration(self, points):
         pts, err = settings.validate_cal(points)
         if err:
@@ -238,11 +326,15 @@ class Controller:
         with self.lock:
             self.cal = pts
             self.saved["servo_cal"] = pts
+            self.learn = {}  # manuelle Kennlinie hat Vorrang, Lernstand neu beginnen
+            self.saved["servo_learn"] = {}
             settings.save(self._p("settings.json"), self.saved)
             self.event("settings", "Servo-Kennlinie: " + ", ".join(f"{a}°={w:g} W" for a, w in pts))
         return pts, None
 
     def servo_manual(self, name, angle):
+        if self.sweep:
+            raise ValueError("Automatische Kalibrierung läuft")
         o = self.outs.get(name)
         if not o or not o.proportional or not isinstance(angle, (int, float)) or isinstance(angle, bool) or not 0 <= angle <= 180:
             raise ValueError("ungültig")
@@ -308,7 +400,7 @@ class Controller:
             self._append_csv(now, row)
 
     def _append_csv(self, now, row):
-        fields = ["t", "temp", "hum", "vpd", "room_temp", "room_hum"] + list(self.outs)
+        fields = ["t", "temp", "hum", "vpd", "room_temp", "room_hum", "exhaust_w"] + list(self.outs)
         try:
             # Ändert sich die Spaltenliste (Geräte/Sensoren), in eine neue Datei mit passender Kopfzeile schreiben
             for suffix in [""] + [f"-{c}" for c in "bcdefghijklmnopqrstuvwxyz"]:
@@ -354,7 +446,7 @@ class Controller:
         import io
         with self.lock:
             rows = self._rows(rng)
-        cols = ["t", "temp", "hum", "vpd", "room_temp", "room_hum"] + list(self.outs)
+        cols = ["t", "temp", "hum", "vpd", "room_temp", "room_hum", "exhaust_w"] + list(self.outs)
         buf = io.StringIO()
         w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
         w.writeheader()
@@ -391,7 +483,12 @@ class Controller:
                 "readings": self.readings, "vpd": self.vpd(), "stale": self.stale(), "is_day": day,
                 "targets": {"temp": cl[f"temp_{p}"], "hum": cl[f"hum_{p}"], "vpd": self.cfg["climate"][f"vpd_{p}"],
                             "control": cl["control"]},
-                "exhaust": {"notes": self.exhaust_notes, "interlock": getattr(self, "exhaust_interlock", [])},
+                "exhaust": {"notes": self.exhaust_notes, "interlock": getattr(self, "exhaust_interlock", []),
+                            "measured_w": self.fresh.get("exhaust_w"),
+                            "cal": self.cal,
+                            "learned": sum(1 for v in self.learn.values() if v[2] >= 3),
+                            "sweep": {"i": self.sweep["i"], "n": len(self.sweep["angles"]),
+                                      "angle": self.sweep["angles"][self.sweep["i"]]} if self.sweep else None},
                 "stats": self.stats(), "alarms": [{"id": k, **v} for k, v in self.alarms.items()],
                 "grow": self._grow_status(g, gday),
                 "irrigation": {"last": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),
@@ -511,6 +608,8 @@ class Controller:
     def set_mode(self, name, mode):
         if name not in self.outs or mode not in ("auto", "on", "off"):
             raise ValueError("ungültig")
+        if self.sweep and self.sweep["out"] == name:
+            self.stop_sweep()
         with self.lock:
             self.outs[name].mode = mode
             self.outs[name].manual_angle = None

@@ -128,6 +128,21 @@ class MerossBackend(WorkerBackend):
         self.hub.set(self.device, self.channel, on)
 
 
+def meross_request(ip, key, namespace, method="SET", payload=None, timeout=5):
+    """Signierte lokale Meross-HTTP-Anfrage (wie node-red-contrib-meross). Gibt das Antwort-Payload zurück."""
+    mid, ts = uuid.uuid4().hex, int(time.time())
+    body = {"header": {"messageId": mid, "namespace": namespace, "method": method, "payloadVersion": 1,
+                       "from": f"http://{ip}/config", "timestamp": ts, "timestampMs": 0,
+                       "sign": hashlib.md5(f"{mid}{key}{ts}".encode()).hexdigest(), "triggerSrc": "Android"},
+            "payload": payload or {}}
+    req = urllib.request.Request(f"http://{ip}/config", json.dumps(body).encode(), {"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        resp = json.load(r)
+    if resp.get("header", {}).get("method") == "ERROR":
+        raise RuntimeError(f"Meross {namespace}: {resp.get('payload')}")
+    return resp.get("payload", {})
+
+
 class MerossLocalBackend(WorkerBackend):
     """Meross-Steckdose im LAN (HTTP, signiert mit dem Geräte-Key) – wie node-red-contrib-meross
     `smartplug-control`. Kein Cloud-Zugriff nötig."""
@@ -137,18 +152,7 @@ class MerossLocalBackend(WorkerBackend):
         super().__init__(**kw)
 
     def _call(self, namespace, payload):
-        mid = uuid.uuid4().hex
-        ts = int(time.time())
-        body = {"header": {"messageId": mid, "namespace": namespace, "method": "SET", "payloadVersion": 1,
-                           "from": f"http://{self.ip}/config", "timestamp": ts, "timestampMs": 0,
-                           "sign": hashlib.md5(f"{mid}{self.key}{ts}".encode()).hexdigest(), "triggerSrc": "Android"},
-                "payload": payload}
-        req = urllib.request.Request(f"http://{self.ip}/config", json.dumps(body).encode(),
-                                     {"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=self.timeout_s) as r:
-            resp = json.load(r)
-        if resp.get("header", {}).get("method") == "ERROR":
-            raise RuntimeError(f"Meross {namespace}: {resp.get('payload')}")
+        meross_request(self.ip, self.key, namespace, "SET", payload, self.timeout_s)
 
     def _send(self, on):
         try:

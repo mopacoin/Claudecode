@@ -80,6 +80,12 @@ def make_handler(ctl, token):
             if parts == ["api", "calibration"]:
                 pts, err = ctl.set_calibration(body.get("points"))
                 return self._send(400, {"error": err}) if err else self._send(200, {"calibration": pts})
+            if parts == ["api", "calibration", "sweep"]:
+                try:
+                    ctl.stop_sweep() if body.get("action") == "stop" else ctl.start_sweep()
+                    return self._send(200, ctl.status())
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
             if len(parts) == 4 and parts[:2] == ["api", "servo"] and parts[3] == "angle":
                 try:
                     ctl.servo_manual(parts[2], body.get("angle"))

@@ -30,7 +30,7 @@ SPEC = {
         "temp_band": ("num", 0.5, 10), "hum_band": ("num", 1, 30), "deadband_deg": ("int", 1, 20),
         "room_aware": ("bool",), "room_margin": ("num", 0, 5),
         "interlock_dehum": ("bool",), "interlock_hum": ("bool",), "interlock_heat": ("bool",), "temp_priority": ("bool",),
-        "dehum_assist_min": ("int", 0, 240), "ramp_w_min": ("num", 0, 500),
+        "dehum_assist_min": ("int", 0, 240), "ramp_w_min": ("num", 0, 500), "auto_learn": ("bool",),
     },
     "grow": {"stage": ("str", 40), "start_date": ("date",)},  # stage = Zyklus-ID (eingebaut oder eigen), "" = keiner
 }
@@ -44,7 +44,8 @@ DEFAULTS = {
     "alarms": {"enabled": True, "temp_min": 15, "temp_max": 32, "hum_min": 30, "hum_max": 80, "delay_min": 10},
     "exhaust": {"enabled": True, "min_w": 22, "max_w": 85, "max_w_night": 60, "temp_band": 3, "hum_band": 10, "deadband_deg": 3,
                 "room_aware": True, "room_margin": 0.5, "interlock_dehum": True, "interlock_hum": True,
-                "interlock_heat": True, "temp_priority": True, "dehum_assist_min": 20, "ramp_w_min": 15},
+                "interlock_heat": True, "temp_priority": True, "dehum_assist_min": 20, "ramp_w_min": 15,
+                "auto_learn": True},
     "grow": {"stage": "", "start_date": ""},
 }
 
@@ -53,8 +54,8 @@ DEFAULT_CAL = [[0, 20], [90, 25], [180, 85]]  # Abluft-Servo: [Winkel, Watt] –
 
 def validate_cal(points):
     """Kennlinie prüfen und sortieren. -> (punkte, fehler)"""
-    if not isinstance(points, list) or not 2 <= len(points) <= 20:
-        return None, "2 bis 20 Lernpunkte erforderlich"
+    if not isinstance(points, list) or not 2 <= len(points) <= 40:
+        return None, "2 bis 40 Lernpunkte erforderlich"
     out = {}
     for p in points:
         if (not isinstance(p, list) or len(p) != 2 or _check(("int", 0, 180), p[0]) or _check(("num", 0, 1000), p[1])):

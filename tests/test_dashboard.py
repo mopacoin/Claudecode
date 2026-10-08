@@ -273,3 +273,74 @@ class TestInterlock(unittest.TestCase):
         self.assertEqual(rules.ramp(30, 80, 5), 35)
         self.assertEqual(rules.ramp(80, 30, 5), 75)
         self.assertEqual(rules.ramp(30, 80, 0), 80)
+
+
+class TestLearning(unittest.TestCase):
+    def test_isotonic_and_curve(self):
+        self.assertEqual(rules.isotonic([(0, 20, 1), (45, 24, 1), (90, 22, 1), (180, 85, 1)]),
+                         [[0, 20.0], [45, 23.0], [90, 23.0], [180, 85.0]])
+        bins = {"0": [0, 20.4, 5], "90": [90, 25.2, 5], "140": [140, 60.0, 2]}  # 140 noch zu wenig Messungen
+        self.assertEqual(rules.learned_curve(bins, [[0, 20], [180, 85]]), [[0, 20.4], [90, 25.2], [180, 85.0]])
+
+    def test_meross_power_parse(self):
+        from growcontroller.sensors import MerossPower
+        self.assertEqual(MerossPower.parse({"electricity": {"channel": 0, "power": 16351, "voltage": 2293, "current": 163}}),
+                         {"w": 16.351, "v": 229.3, "a": 0.163})
+
+    def _ctl(self, d):
+        from growcontroller import outputs
+
+        class Rec:
+            healthy = True
+            def set(self, v): pass
+            def close(self): pass
+        c = make(d)
+        c.outs["vent"] = outputs.Output("vent", Rec(), role="vent", proportional=True)
+        c._prev_state["vent"] = False
+        return c
+
+    def test_sweep_builds_curve(self):
+        import growcontroller.controller as cm
+        with tempfile.TemporaryDirectory() as d:
+            c = self._ctl(d)
+            true_w = lambda a: 20 + (a / 180) ** 3 * 65  # flach, dann steil wie beim echten Lüfter
+            clock = [1000.0]
+            cm.time.monotonic = lambda: clock[0]
+            try:
+                c.fresh = {"exhaust_w": 20.0}
+                c.start_sweep()
+                o = c.outs["vent"]
+                for _ in range(400):
+                    clock[0] += 5
+                    c._apply_servo(o, {}, True, None)      # fährt den Messwinkel an
+                    c.fresh = {"exhaust_w": round(true_w(o.angle), 1)}
+                    c._learn_step(o)
+                    if not c.sweep:
+                        break
+                self.assertIsNone(c.sweep)
+                self.assertEqual(o.mode, "auto")
+                self.assertEqual(len(c.cal), 13)
+                self.assertAlmostEqual(dict(map(tuple, c.cal))[135], true_w(135), delta=0.2)
+            finally:
+                cm.time.monotonic = time.monotonic
+            c.shutdown()
+            c2 = make(d); self.assertEqual(len(c2.cal), 13); self.assertEqual(len(c2.learn), 13); c2.shutdown()
+
+    def test_passive_learning(self):
+        import growcontroller.controller as cm
+        with tempfile.TemporaryDirectory() as d:
+            c = self._ctl(d)
+            o = c.outs["vent"]; o.angle = 120
+            clock = [1000.0]
+            cm.time.monotonic = lambda: clock[0]
+            try:
+                c._lrn = {"angle": None, "since": 0, "last": 0, "saved": clock[0]}
+                for _ in range(30):
+                    clock[0] += 31
+                    c.fresh = {"exhaust_w": 47.0}
+                    c._learn_step(o)
+                self.assertGreaterEqual(c.learn["120"][2], 3)
+                self.assertIn([120, 47.0], c.cal)  # gemessener Punkt ist in der Kennlinie
+            finally:
+                cm.time.monotonic = time.monotonic
+            c.shutdown()

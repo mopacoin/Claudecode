@@ -170,3 +170,32 @@ def ramp(prev, target, max_step):
     if prev is None or max_step <= 0:
         return target
     return prev + max(-max_step, min(max_step, target - prev))
+
+
+def isotonic(points):
+    """Gewichtete monotone Regression (Pool Adjacent Violators): [(winkel, watt, gewicht)] nach Winkel sortiert
+    -> [[winkel, watt]] mit nicht fallender Leistung. Glättet Messrauschen, ohne die Kurve zu verbiegen."""
+    blocks = []
+    for a, w, n in points:
+        blocks.append([w * n, n, [a]])
+        while len(blocks) > 1 and blocks[-2][0] / blocks[-2][1] > blocks[-1][0] / blocks[-1][1]:
+            s, n2, al = blocks.pop()
+            blocks[-1][0] += s
+            blocks[-1][1] += n2
+            blocks[-1][2] += al
+    return [[a, round(s / n, 1)] for s, n, al in blocks for a in al]
+
+
+def learned_curve(bins, manual, min_n=3, near=8):
+    """Kennlinie aus gelernten Messpunkten (bins: {key: [winkel, watt, n]}) plus manuellen Punkten, die weiter als
+    `near` Grad von einem gelernten Punkt entfernt sind (Gewicht 1)."""
+    pts = [(round(a), w, min(n, 20)) for a, w, n in bins.values() if n >= min_n]
+    for a, w in manual:
+        if all(abs(a - p[0]) > near for p in pts):
+            pts.append((a, w, 1))
+    pts.sort()
+    merged = {}
+    for a, w, n in pts:  # gleicher Winkel -> zusammenfassen
+        s, m = merged.get(a, (0, 0))
+        merged[a] = (s + w * n, m + n)
+    return isotonic([(a, s / m, m) for a, (s, m) in sorted(merged.items())])

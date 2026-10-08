@@ -148,7 +148,37 @@ class Govee:
         return {"temp": r["temp"], "hum": r["hum"], "batt": r["batt"]}
 
 
-DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B20, "govee": Govee}
+class MerossPower:
+    """Leistungsmessung einer Meross-Steckdose (z. B. MSS305) im LAN, nur lesend – schaltet nichts.
+    Liefert w (Watt), v (Volt), a (Ampere). Abfrage in eigenem Thread alle `poll_s` Sekunden."""
+
+    def __init__(self, ip, key, poll_s=5, max_age_s=20, **_):
+        self.ip, self.key, self.poll_s, self.max_age = ip, key, max(2, poll_s), max_age_s
+        self.val, self.t, self.error = None, 0.0, None
+        threading.Thread(target=self._run, daemon=True, name=f"meross-power-{ip}").start()
+
+    @staticmethod
+    def parse(payload):
+        e = payload.get("electricity", payload)
+        return {"w": e["power"] / 1000.0, "v": e["voltage"] / 10.0, "a": e["current"] / 1000.0}  # mW, 0,1 V, mA
+
+    def _run(self):
+        from .backends import meross_request
+        while True:
+            try:
+                self.val = self.parse(meross_request(self.ip, self.key, "Appliance.Control.Electricity", "GET", {}))
+                self.t, self.error = time.monotonic(), None
+            except Exception as e:
+                self.error = f"Meross {self.ip}: {e}"
+            time.sleep(self.poll_s)
+
+    def read(self):
+        if not self.val or time.monotonic() - self.t > self.max_age:
+            raise RuntimeError(self.error or f"Meross {self.ip}: noch keine Messwerte")
+        return dict(self.val)
+
+
+DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B20, "govee": Govee, "meross_power": MerossPower}
 
 
 def create(cfg):

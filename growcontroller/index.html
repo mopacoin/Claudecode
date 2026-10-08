@@ -289,7 +289,8 @@ const FORMS = {
     {k: 'dehum_assist_min', l: 'Abluft hilft dem Entfeuchter nach (0 = nie)', u: 'min', step: 1},
     {k: 'interlock_hum', l: 'Befeuchter läuft → Abluft auf Grundlast', t: 'bool'}, {k: 'interlock_heat', l: 'Heizung läuft → Abluft auf Grundlast', t: 'bool'},
     {k: 'temp_priority', l: 'Temperatur hat Vorrang (zu heiß → Abluft darf trotzdem hoch)', t: 'bool'},
-    {k: 'ramp_w_min', l: 'Sanfte Rampe: max. Änderung (0 = aus)', u: 'W/min', step: 1}],
+    {k: 'ramp_w_min', l: 'Sanfte Rampe: max. Änderung (0 = aus)', u: 'W/min', step: 1},
+    {k: 'auto_learn', l: 'Kennlinie im Betrieb automatisch nachlernen (braucht Leistungsmessung)', t: 'bool'}],
    hint: 'Die Abluft läuft immer mit Grundlast und steigt gleitend bis zum Maximum, je weiter Temperatur oder Feuchte über dem Soll liegen. Die Watt werden über die Kennlinie (Geräte → Abluft kalibrieren) in den Servo-Winkel umgerechnet. Ohne stufenlose Regelung läuft sie nur zwischen Grundlast und Maximum. Mit „Raumklima berücksichtigen“ dreht sie nicht sinnlos hoch, wenn die Raumluft selbst zu warm oder zu feucht ist (braucht einen Raum-Sensor). Die Gerätekopplung verhindert, dass Abluft und Entfeuchter, Befeuchter oder Heizung gegeneinander arbeiten – wie der Interlock bei Profi-Controllern. Sie greift für Geräte, die dieser Controller schaltet.'},
   grow: {title: 'Zyklus wechseln', fields: [
     {k: 'stage', l: 'Aktiver Zyklus', t: 'select', dyn: true},
@@ -513,7 +514,7 @@ function renderDevices() {
     const info = infoText(o), bad = o.ok === false;
     return `<div class="card dev ${o.state ? 'on' : ''} ${bad ? 'err' : ''}"><div class="hd"><div class="ib">${ico(ROLE_ICO[o.role] || 'plug')}</div>
       <div class="sp"><div class="nm">${esc(LABEL[n] || n)}</div><div class="st">${bad ? '<span style="color:var(--bad)">nicht erreichbar</span>' : stateText(o)} · ${esc(o.info.type)}</div></div></div>
-      ${o.proportional && o.watts != null ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${Math.round(o.watts)} W</b><span class="sub">${o.angle}° Servo · ${Math.round(exShare(o.watts) * 100)} % Leistung</span></div>
+      ${o.proportional && o.watts != null ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${Math.round(o.watts)} W</b><span class="sub">${o.angle}° Servo · ${Math.round(exShare(o.watts) * 100)} % Leistung${S.exhaust?.measured_w != null ? ` · gemessen ${S.exhaust.measured_w.toFixed(1)} W` : ''}</span></div>
         <div class="lvl"><i style="width:${exShare(o.watts) * 100}%"></i></div>` : ''}
       <div class="info">${esc(info)}</div>
       <div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${(o.proportional ? {auto: 'Auto', on: 'Maximum', off: 'Grundlast'} : {auto: 'Auto', on: 'Ein', off: 'Aus'})[m]}</button>`).join('')}</div></div>`;
@@ -546,10 +547,12 @@ function calCurve() {
 }
 function renderCal() {
   const n = servoName(), card = $('#calCard'); card.style.display = n ? '' : 'none'; if (!n) return;
+  if (S.exhaust?.cal && JSON.stringify(S.exhaust.cal) !== JSON.stringify(CFG.calibration)) CFG.calibration = S.exhaust.cal;  // Messfahrt/Nachlernen
   const key = JSON.stringify(CFG.calibration);
   if (calBuilt !== key) {  // Aufbau nur bei Änderung – sonst würden Eingaben beim 5-s-Refresh verloren gehen
     calBuilt = key;
-    card.innerHTML = `<h3>${ico('out')} Abluft kalibrieren</h3><p class="hint">Servo auf einen Winkel fahren, Leistung am Messgerät ablesen und als Lernpunkt speichern. Je mehr Punkte, besonders im steilen Bereich, desto genauer trifft die Regelung die gewünschten Watt. Danach „Zurück auf Automatik“.</p>
+    card.innerHTML = `<h3>${ico('out')} Abluft kalibrieren</h3><p class="hint">Mit Leistungsmessung an der Abluft-Steckdose: „Automatisch kalibrieren“ fährt 0–180° ab und misst jeden Punkt (ca. 5 min); im Betrieb lernt die Kennlinie danach selbst weiter. Ohne Messung: Winkel anfahren, Leistung ablesen und als Lernpunkt speichern.</p>
+      <div class="row" id="calAutoRow" style="margin-bottom:14px"></div>
       <div class="calgrid"><div><div id="calSvg"></div><div class="sub" id="calLive" style="margin-top:6px"></div></div>
       <div><div class="fld"><label>Servo-Winkel</label><div class="row"><input type="range" id="calAng" min="0" max="180" step="1" value="${S.outputs[n].angle ?? 90}" style="flex:1"><div class="ig" style="width:96px"><input type="number" id="calAngN" min="0" max="180" value="${S.outputs[n].angle ?? 90}"><span>°</span></div></div></div>
         <button class="sec" id="calGo" style="width:100%">Servo auf diesen Winkel fahren</button>
@@ -568,7 +571,20 @@ function renderCal() {
   }
   const o = S.outputs[n];
   $('#calSvg').innerHTML = calCurve();
-  $('#calLive').innerHTML = o.angle != null ? `Aktuell <b style="color:var(--text)">${o.angle}°</b> ≈ <b style="color:var(--text)">${Math.round(o.watts)} W</b> laut Kennlinie · Modus ${o.mode === 'manual' ? '<b style="color:var(--warn)">Kalibrier-Test</b>' : o.mode}` : '';
+  const ex = S.exhaust || {}, mw = ex.measured_w, sw = ex.sweep;
+  $('#calLive').innerHTML = (o.angle != null ? `Aktuell <b style="color:var(--text)">${o.angle}°</b> ≈ <b style="color:var(--text)">${Math.round(o.watts)} W</b> laut Kennlinie` : '')
+    + (mw != null ? ` · gemessen <b style="color:var(--acc)">${mw.toFixed(1)} W</b>` : '')
+    + ` · Modus ${sw ? '<b style="color:var(--warn)">Messfahrt</b>' : o.mode === 'manual' ? '<b style="color:var(--warn)">Kalibrier-Test</b>' : o.mode}`
+    + (ex.learned ? ` · ${ex.learned} gelernte Punkte` : '');
+  if (mw != null && $('#calW') && document.activeElement !== $('#calW') && o.mode === 'manual') $('#calW').placeholder = mw.toFixed(1) + ' (gemessen)';
+  const row = $('#calAutoRow');
+  row.innerHTML = sw ? `<div class="sp"><b>Messfahrt läuft:</b> ${sw.angle}° (${sw.i + 1}/${sw.n}) – Servo wartet je Punkt 20 s, dann 3 Messungen
+      <div class="lvl"><i style="width:${(sw.i / sw.n) * 100}%"></i></div></div><button class="sec danger" id="swStop">Abbrechen</button>`
+    : mw != null ? `<button class="pri" id="swGo">Automatisch kalibrieren (ca. 5 min)</button><span class="sub">Leistungsmessung aktiv: ${mw.toFixed(1)} W</span>`
+    : `<span class="sub">Keine Leistungsmessung der Abluft verbunden – Lernpunkte manuell eintragen.</span>`;
+  $('#swGo')?.addEventListener('click', async () => { if (!confirm('Messfahrt starten? Der Servo fährt ca. 5 min lang 0–180° ab, die Abluft-Regelung pausiert so lange.')) return;
+    try { S = await api('/api/calibration/sweep', {action: 'start'}); renderAll(); toast('Messfahrt gestartet'); } catch (e) { toast(e.data?.error || e.message, 1); } });
+  $('#swStop')?.addEventListener('click', async () => { try { S = await api('/api/calibration/sweep', {action: 'stop'}); renderAll(); } catch (e) { toast(e.message, 1); } });
 }
 
 // ---- Einstellungsformulare ----

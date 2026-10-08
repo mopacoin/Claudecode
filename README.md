@@ -22,6 +22,9 @@ Läuft im Controller selbst (keine externen Bibliotheken, funktioniert offline),
   umgerechnet. Kalibrieren unter Geräte → „Abluft kalibrieren“: Winkel anfahren, Leistung eintragen, speichern.
   Startwerte: 0° = 20 W, 90° = 25 W, 180° = 85 W. Mit Raum-Sensor regelt sie nur auf das per Raumluft Erreichbare
   (Zelt ≥ Raumtemperatur + Abstand; Feuchte über absolute Feuchte) und zeigt einen Hinweis, wenn das Ziel so nicht erreichbar ist.
+  **Automatische Kennlinie:** Mit Leistungsmessung an der Abluft-Steckdose (Sensor `meross_power` mit `"prefix": "exhaust_"`)
+  fährt „Automatisch kalibrieren“ 0–180° in 15°-Schritten ab (je 20 s einschwingen, Median aus 3 Messungen); im Betrieb lernt
+  die Kennlinie bei stillstehendem Servo weiter (geglättet, monoton steigend erzwungen).
   **Gerätekopplung (Interlock):** Läuft der Entfeuchter, entfeuchtet die Abluft nicht mit (Stufe 2: hilft erst, wenn er nach
   20 min nicht hinterherkommt); Befeuchter/Heizung an → Abluft auf Grundlast; Temperatur hat Vorrang; sanfte Rampe (15 W/min). Gerät „Ein“ = Maximum, „Aus“ = Grundlast.
 - **Licht:** Zeitplan inkl. Schnellwahl 18/6, 20/4, 16/8, 12/12 · **Bewässerung:** Intervall, Dauer, Zeitfenster
@@ -43,6 +46,7 @@ Ohne `web.token` kann jeder im Netz Einstellungen ändern – bitte ein Token se
 |---|---|---|
 | `govee` | Govee-Thermo-Hygrometer per Bluetooth (H5072/74/75, H5100–05, H5174/77, H5179), Paket `bleak` | `mac` |
 | `bme280` / `dht22` / `ds18b20` | kabelgebunden | siehe `sensors.py` |
+| `meross_power` | Leistungsmessung einer Meross-Steckdose (MSS305) im LAN, nur lesend | `ip`, `key`, `poll_s` |
 | `sim` | simuliert (Test) | – |
 
 `"prefix": "room_"` macht einen Sensor zum reinen Anzeige-Sensor (Raumklima), er regelt nicht.

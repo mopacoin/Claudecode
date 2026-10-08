@@ -108,11 +108,39 @@ def angle_for_watts(cal, watts):
     return cal[-1][0]
 
 
-def exhaust_watts(cfg, day, temp, hum, t_target, h_target):
-    """Grundlast + Anteil bis Maximum, je weiter Temperatur oder Feuchte über dem Soll liegen."""
+def abs_hum(t, rh):
+    """Absolute Feuchte in g/m³."""
+    return 6.112 * math.exp(17.67 * t / (t + 243.5)) * rh * 2.1674 / (273.15 + t)
+
+
+def rh_at(t, ah):
+    """Relative Feuchte, die Luft mit absoluter Feuchte `ah` bei Temperatur `t` hätte."""
+    return ah * (273.15 + t) / (6.112 * math.exp(17.67 * t / (t + 243.5)) * 2.1674)
+
+
+def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None):
+    """Abluft-Leistung in W + Hinweise, was per Abluft nicht erreichbar ist.
+
+    Abluft zieht Raumluft nach: Das Zelt kann nicht kühler als der Raum (+ Abstand) und nicht
+    trockener als Raumluft auf Zelttemperatur werden. Geregelt wird nur auf den erreichbaren Teil."""
     lo, hi = cfg["min_w"], cfg["max_w"] if day else cfg["max_w_night"]
     if temp is None and hum is None:
-        return hi  # ohne Messwerte lieber lüften
-    ft = _clamp((temp - t_target) / cfg["temp_band"]) if temp is not None else 0
-    fh = _clamp((hum - h_target) / cfg["hum_band"]) if hum is not None else 0
-    return round(lo + (max(hi, lo) - lo) * max(ft, fh), 1)
+        return hi, []  # ohne Messwerte lieber lüften
+    notes, t_goal, h_goal = [], t_target, h_target
+    if cfg.get("room_aware", True) and room_t is not None:
+        floor_t = room_t + cfg.get("room_margin", 0.5)
+        if temp is not None and temp > t_target and floor_t > t_target:
+            t_goal = floor_t
+            notes.append({"key": "temp", "floor": round(floor_t, 1), "room": room_t, "useless": floor_t >= temp})
+        if room_h is not None and temp is not None and hum is not None:
+            floor_h = rh_at(temp, abs_hum(room_t, room_h)) + 2
+            if hum > h_target and floor_h > h_target:
+                h_goal = floor_h
+                notes.append({"key": "hum", "floor": round(min(floor_h, 100), 1), "room": room_h, "useless": floor_h >= hum})
+    ft = _clamp((temp - t_goal) / cfg["temp_band"]) if temp is not None else 0
+    fh = _clamp((hum - h_goal) / cfg["hum_band"]) if hum is not None else 0
+    return round(lo + (max(hi, lo) - lo) * max(ft, fh), 1), notes
+
+
+def exhaust_watts(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None):
+    return exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t, room_h)[0]

@@ -44,6 +44,8 @@ main{padding:14px 28px 40px;max-width:1200px}
 .card h3{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:12px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.09em}
 .grid{display:grid;gap:14px}.g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}.g4{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
 .mt{margin-top:14px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.chips{display:flex;gap:6px;flex-wrap:wrap}
+.banner.info{background:linear-gradient(90deg,color-mix(in srgb,var(--warn) 22%,transparent),color-mix(in srgb,var(--warn) 6%,transparent));border-color:var(--warn)}
+.banner.info .ico{color:var(--warn);flex:none}
 .banner{display:flex;gap:12px;align-items:center;background:linear-gradient(90deg,color-mix(in srgb,var(--bad) 30%,transparent),color-mix(in srgb,var(--bad) 8%,transparent));border:1px solid var(--bad);border-radius:var(--r);padding:12px 16px;margin-bottom:14px}
 .hint{color:var(--mute);font-size:13px;margin:0 0 14px}.sub{color:var(--mute);font-size:13px}
 /* Ringanzeigen */
@@ -281,8 +283,9 @@ const FORMS = {
     {k: 'enabled', l: 'Stufenlose Regelung', t: 'bool'}, {k: 'min_w', l: 'Grundlast', u: 'W', step: 1},
     {k: 'max_w', l: 'Maximum Tag', u: 'W', step: 1}, {k: 'max_w_night', l: 'Maximum Nacht (leiser)', u: 'W', step: 1},
     {k: 'temp_band', l: 'Volle Leistung ab Temperatur Soll +', u: '°C', step: .5}, {k: 'hum_band', l: 'Volle Leistung ab Feuchte Soll +', u: '%', step: 1},
-    {k: 'deadband_deg', l: 'Servo erst bewegen ab', u: '° Änderung', step: 1}],
-   hint: 'Die Abluft läuft immer mit Grundlast und steigt gleitend bis zum Maximum, je weiter Temperatur oder Feuchte über dem Soll liegen. Die Watt werden über die Kennlinie (Geräte → Abluft kalibrieren) in den Servo-Winkel umgerechnet. Ohne stufenlose Regelung läuft sie nur zwischen Grundlast und Maximum.'},
+    {k: 'deadband_deg', l: 'Servo erst bewegen ab', u: '° Änderung', step: 1},
+    {k: 'room_aware', l: 'Raumklima berücksichtigen', t: 'bool'}, {k: 'room_margin', l: 'Zelt bleibt mindestens wärmer als Raum um', u: '°C', step: .1}],
+   hint: 'Die Abluft läuft immer mit Grundlast und steigt gleitend bis zum Maximum, je weiter Temperatur oder Feuchte über dem Soll liegen. Die Watt werden über die Kennlinie (Geräte → Abluft kalibrieren) in den Servo-Winkel umgerechnet. Ohne stufenlose Regelung läuft sie nur zwischen Grundlast und Maximum. Mit „Raumklima berücksichtigen“ dreht sie nicht sinnlos hoch, wenn die Raumluft selbst zu warm oder zu feucht ist (braucht einen Raum-Sensor).'},
   grow: {title: 'Zyklus wechseln', fields: [
     {k: 'stage', l: 'Aktiver Zyklus', t: 'select', dyn: true},
     {k: 'start_date', l: 'Start des Zyklus', t: 'date'}]},
@@ -360,8 +363,18 @@ function renderOverview() {
       ${s ? `<div class="t">24 h: ${s.min}–${s.max} · Ø ${s.avg}</div>` : ''}</div></div>${spark(key, col)}</div>`;
   }).join('');
   $('#zmark').style.left = Math.min(100, (S.vpd ?? 0) / 2 * 100) + '%';
-  $('#banner').innerHTML = S.alarms.length ? `<div class="banner">${ico('bell')}<div>${S.alarms.map(a => `<div><b>${esc(a.msg)}</b></div>`).join('')}</div></div>` : '';
+  $('#banner').innerHTML = (S.alarms.length ? `<div class="banner">${ico('bell')}<div>${S.alarms.map(a => `<div><b>${esc(a.msg)}</b></div>`).join('')}</div></div>` : '')
+    + (S.exhaust?.notes || []).map(n => `<div class="banner info">${ico(n.key === 'temp' ? 'thermo' : 'drops')}<div>${roomNote(n)}</div></div>`).join('');
   renderLight(); renderIrrMini(); renderRoom();
+}
+function roomNote(n) {
+  const t = S.targets;
+  if (n.key === 'temp') return n.useless
+    ? `<b>Abluft kühlt nicht:</b> Der Raum ist mit ${n.room} °C so warm, dass mehr Abluft das Zelt nicht unter das Ziel von ${t.temp} °C bringt. Die Abluft bleibt bei Grundlast. Zum Kühlen bräuchte es z. B. ein Klimagerät oder kühlere Zuluft.`
+    : `<b>Ziel ${t.temp} °C per Abluft nicht erreichbar:</b> Der Raum hat ${n.room} °C, mehr Abluft kühlt das Zelt nur bis etwa ${n.floor} °C. Die Abluft regelt nur noch auf diesen Wert.`;
+  return n.useless
+    ? `<b>Abluft entfeuchtet nicht:</b> Die Raumluft (${n.room} %) ist so feucht, dass mehr Abluft die Luftfeuchte im Zelt nicht senkt. Hier hilft nur ein Entfeuchter.`
+    : `<b>Ziel ${t.hum} % per Abluft nicht erreichbar:</b> Mit der Raumluft sinkt die Luftfeuchte im Zelt nur bis etwa ${n.floor} %.`;
 }
 function renderRoom() {
   const r = S.readings, card = $('#roomCard');

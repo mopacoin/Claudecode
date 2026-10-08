@@ -193,3 +193,32 @@ class TestRoomSensor(unittest.TestCase):
             c.read_sensors()
             self.assertTrue(c.stale())  # Raum-Sensor allein hält die Regelung nicht "aktuell"
             c.shutdown()
+
+
+class TestRoomAwareExhaust(unittest.TestCase):
+    EX = {**settings.DEFAULTS["exhaust"]}
+
+    def test_room_hotter_than_tent(self):
+        w, notes = rules.exhaust_plan(self.EX, True, 28, 50, 25, 60, room_t=29, room_h=40)
+        self.assertEqual(w, self.EX["min_w"])  # Abluft würde nur heizen -> Grundlast
+        self.assertTrue(notes[0]["useless"]); self.assertEqual(notes[0]["key"], "temp")
+
+    def test_room_between_target_and_tent(self):
+        w, notes = rules.exhaust_plan(self.EX, True, 28, 50, 25, 60, room_t=26.5, room_h=40)
+        full, _ = rules.exhaust_plan(self.EX, True, 28, 50, 25, 60)
+        self.assertLess(w, full)  # nur noch auf ~27 °C regeln statt auf 25 °C
+        self.assertEqual(notes[0]["floor"], 27.0); self.assertFalse(notes[0]["useless"])
+
+    def test_room_cool_no_note(self):
+        w, notes = rules.exhaust_plan(self.EX, True, 28, 50, 25, 60, room_t=20, room_h=40)
+        self.assertEqual(notes, []); self.assertEqual(w, self.EX["max_w"])
+
+    def test_humid_room(self):
+        # Raum 24 °C / 80 % ist absolut feuchter als Zelt 26 °C / 70 % -> Abluft entfeuchtet nicht
+        w, notes = rules.exhaust_plan(self.EX, True, 24.5, 70, 25, 60, room_t=24, room_h=80)
+        self.assertEqual([n["key"] for n in notes], ["hum"]); self.assertTrue(notes[0]["useless"])
+        self.assertEqual(w, self.EX["min_w"])
+
+    def test_disabled(self):
+        w, notes = rules.exhaust_plan({**self.EX, "room_aware": False}, True, 28, 50, 25, 60, room_t=29, room_h=40)
+        self.assertEqual(notes, []); self.assertEqual(w, self.EX["max_w"])

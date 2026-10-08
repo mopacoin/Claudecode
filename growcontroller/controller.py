@@ -33,6 +33,7 @@ class Controller:
         # prefix: z. B. "room_" für einen Raum-Sensor, der nur angezeigt wird und nicht regelt
         self.sensors = {n: (c.get("prefix", ""), sensors.create(c)) for n, c in cfg["sensors"].items()}
         self._warned = {}
+        self.exhaust_notes = []
         self.gpio, self.outs, self.hubs = outputs.create_all(cfg)
         self.has_dehum = any(o.role == "dehumidifier" for o in self.outs.values())
         for n, m in self.saved.get("modes", {}).items():
@@ -146,12 +147,14 @@ class Controller:
                                           self.readings.get("hum"), cur, now, self.has_dehum))
             want["pump"] = self._pump(now)
             want["vent"] = want["intake"] = want["fan"]  # Abluft-Klappe und Zuluft folgen dem Lüfterbedarf
-            ex_w = None
+            ex_w, notes = None, []
             if not self.stale():
                 p = "day" if day else "night"
                 cl = self.effective_climate(day)
-                ex_w = rules.exhaust_watts(self.cfg["exhaust"], day, self.readings.get("temp"), self.readings.get("hum"),
-                                           cl[f"temp_{p}"], cl[f"hum_{p}"])
+                r = self.readings
+                ex_w, notes = rules.exhaust_plan(self.cfg["exhaust"], day, r.get("temp"), r.get("hum"), cl[f"temp_{p}"], cl[f"hum_{p}"],
+                                                 r.get("room_temp"), r.get("room_hum"))
+            self._exhaust_notes(notes)
             for n, o in self.outs.items():
                 if o.proportional:
                     self._apply_servo(o, want, day, ex_w)
@@ -180,6 +183,19 @@ class Controller:
                 w = top if ex_w is None else ex_w  # ohne Messwerte: lüften
             o.apply_level(rules.angle_for_watts(self.cal, w), round(w, 1), ex["deadband_deg"])
         o.state = o.watts is not None and o.watts > ex["min_w"] + 0.5
+
+    def _exhaust_notes(self, notes):
+        """Hinweis ins Ereignisprotokoll, wenn die Raumluft eine Grenze setzt (nur bei Änderung)."""
+        old = {n["key"] for n in self.exhaust_notes}
+        new = {n["key"] for n in notes}
+        what = {"temp": "Temperatur", "hum": "Luftfeuchte"}
+        for k in new - old:
+            n = next(x for x in notes if x["key"] == k)
+            unit = "°C" if k == "temp" else "%"
+            self.event("system", f"{what[k]}-Ziel per Abluft nicht erreichbar: Raumluft erlaubt nur ca. {n['floor']} {unit}")
+        for k in old - new:
+            self.event("system", f"{what[k]}-Ziel per Abluft wieder erreichbar")
+        self.exhaust_notes = notes
 
     def set_calibration(self, points):
         pts, err = settings.validate_cal(points)
@@ -338,6 +354,7 @@ class Controller:
                 "readings": self.readings, "vpd": self.vpd(), "stale": self.stale(), "is_day": day,
                 "targets": {"temp": cl[f"temp_{p}"], "hum": cl[f"hum_{p}"], "vpd": self.cfg["climate"][f"vpd_{p}"],
                             "control": cl["control"]},
+                "exhaust": {"notes": self.exhaust_notes},
                 "stats": self.stats(), "alarms": [{"id": k, **v} for k, v in self.alarms.items()],
                 "grow": self._grow_status(g, gday),
                 "irrigation": {"last": self.last_irrigation and self.last_irrigation.isoformat(timespec="seconds"),

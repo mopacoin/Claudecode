@@ -148,63 +148,7 @@ class Govee:
         return {"temp": r["temp"], "hum": r["hum"], "batt": r["batt"]}
 
 
-class MqttSensor:
-    """Werte aus MQTT-Topics, z. B. von der ESP32-BLE-Brücke für den Spider Farmer GGS-Controller.
-    topics: {name: topic}; Payload = Zahl, true/false/on/off oder JSON-Objekt (dann `json_key`)."""
-
-    def __init__(self, topics, host="127.0.0.1", port=1883, username=None, password=None, max_age_s=300, json_key=None, **_):
-        import paho.mqtt.client as mqtt
-        self.topics, self.max_age, self.json_key = dict(topics), max_age_s, json_key
-        self.by_topic = {t: n for n, t in self.topics.items()}
-        self.vals, self.connected = {}, False
-        try:
-            self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        except AttributeError:
-            self.client = mqtt.Client()
-        if username:
-            self.client.username_pw_set(username, password)
-        self.client.on_connect = self._on_connect
-        self.client.on_disconnect = lambda *a: setattr(self, "connected", False)
-        self.client.on_message = self._on_message
-        self.client.reconnect_delay_set(1, 30)
-        self.client.connect_async(host, port)
-        self.client.loop_start()
-
-    def _on_connect(self, client, *_):
-        self.connected = True
-        for t in self.topics.values():
-            client.subscribe(t)
-
-    def parse(self, payload):
-        txt = payload.decode(errors="ignore").strip() if isinstance(payload, bytes) else str(payload).strip()
-        low = txt.lower().strip('"')
-        if low in ("true", "on", "yes"):
-            return 1.0
-        if low in ("false", "off", "no"):
-            return 0.0
-        if self.json_key and txt.startswith("{"):
-            import json
-            txt = str(json.loads(txt).get(self.json_key, ""))
-        return float(txt.strip('"'))
-
-    def _on_message(self, client, userdata, msg):
-        name = self.by_topic.get(msg.topic)
-        if name is None:
-            return
-        try:
-            self.vals[name] = (self.parse(msg.payload), time.monotonic())
-        except (ValueError, TypeError):
-            pass  # unbrauchbare Nachricht ignorieren
-
-    def read(self):
-        now = time.monotonic()
-        out = {k: v for k, (v, t) in self.vals.items() if now - t <= self.max_age}
-        if not out:
-            raise RuntimeError("keine aktuellen MQTT-Daten" + ("" if self.connected else " (Broker nicht verbunden)"))
-        return out
-
-
-DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B20, "govee": Govee, "mqtt": MqttSensor}
+DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B20, "govee": Govee}
 
 
 def create(cfg):

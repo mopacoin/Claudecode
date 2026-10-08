@@ -58,22 +58,3 @@ class TestGovee(unittest.TestCase):
         self.assertEqual(decode_govee(0xEC88, b"\x00" + struct.pack("<hHB", 2345, 5678, 90) + b"\x02\x00\x00"), {"temp": 23.4, "hum": 56.8, "batt": 90})
         self.assertEqual(decode_govee(0x8801, b"\x01\x00\x01\x01" + struct.pack("<hHB", 2105, 4890, 77)), {"temp": 21.1, "hum": 48.9, "batt": 77})
         self.assertIsNone(decode_govee(0x004C, b"\x02\x15" + b"\x00" * 21))  # Apple-iBeacon o. ä.
-
-
-class TestMqttSensor(unittest.TestCase):
-    def test_parse_and_read(self):
-        from types import SimpleNamespace
-        from growcontroller.sensors import MqttSensor
-        s = MqttSensor.__new__(MqttSensor)  # ohne Broker
-        s.topics = {"temp": "grow/GGS/sensor/temp", "light_on": "grow/GGS/light/on"}
-        s.by_topic = {t: n for n, t in s.topics.items()}
-        s.vals, s.connected, s.max_age, s.json_key = {}, True, 300, None
-        with self.assertRaises(RuntimeError):
-            s.read()
-        s._on_message(None, None, SimpleNamespace(topic="grow/GGS/sensor/temp", payload=b"24.6"))
-        s._on_message(None, None, SimpleNamespace(topic="grow/GGS/light/on", payload=b"true"))
-        s._on_message(None, None, SimpleNamespace(topic="grow/GGS/sensor/temp", payload=b"kaputt"))  # ignoriert
-        s._on_message(None, None, SimpleNamespace(topic="anderes/topic", payload=b"1"))
-        self.assertEqual(s.read(), {"temp": 24.6, "light_on": 1.0})
-        s.json_key = "value"
-        self.assertEqual(s.parse(b'{"value": 3}'), 3.0)

@@ -183,7 +183,12 @@ class TuyaBackend(WorkerBackend):
         errors = []
         for v in ([self.versions[0]] if self.dev else self.versions):
             dev = self.dev or self._device(v)
-            res = dev.set_value(self.dp, value)
+            try:
+                res = dev.set_value(self.dp, value)
+            except OSError as e:
+                if e.errno == 98:  # Port der LAN-Suche belegt (meist Node-RED)
+                    raise RuntimeError("Tuya-Suche: Port belegt (läuft Node-RED noch?) – trag in config.json die IP statt 'Auto' ein") from e
+                raise
             if isinstance(res, dict) and res.get("Error"):
                 errors.append(f"v{v}: {res['Error']}")
                 self.dev = None
@@ -210,7 +215,11 @@ class MqttHub:
         self.client.loop_start()
 
     def publish(self, topic, payload, retain=False):
-        if not self.client.is_connected():
+        for _ in range(50):  # direkt nach dem Start läuft der Verbindungsaufbau noch
+            if self.client.is_connected():
+                break
+            time.sleep(0.1)
+        else:
             raise RuntimeError("MQTT nicht verbunden")
         info = self.client.publish(topic, payload, qos=1, retain=retain)
         info.wait_for_publish(timeout=5)

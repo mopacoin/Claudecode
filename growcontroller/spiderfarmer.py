@@ -143,6 +143,12 @@ class Cloud:
         return out
 
 
+def dev_command(method, serial, user_id):
+    """Befehl im Format, das die Cloud selbst an das Gerät schickt (pid/uid oben, mitgeschnitten von
+    cobragt2000/spider_farmer_bridge); params.pid zusätzlich wie im zeroXmrcl-Client."""
+    return {"method": method, "pid": serial, "params": {"pid": serial}, "msgId": str(int(time.time() * 1000)), "uid": str(user_id)}
+
+
 def _client_id(user_id):
     tail = f"{int(time.time() * 1000)}{secrets.token_hex(2)}"
     cid = f"{user_id}_{tail}"
@@ -241,8 +247,7 @@ class SpiderFarmerSensor:
             while True:
                 if not c.is_connected():
                     raise ConnectionError("MQTT getrennt")
-                cmd = {"method": "getDevSta", "params": {"pid": self.dev["serial"]}, "msgId": str(int(time.time() * 1000))}
-                c.publish(down, json.dumps(cmd, separators=(",", ":")), qos=0)
+                c.publish(down, json.dumps(dev_command("getDevSta", self.dev["serial"], sess["user_id"]), separators=(",", ":")), qos=0)
                 time.sleep(self.poll_s)
         finally:
             c.loop_stop()
@@ -269,24 +274,44 @@ def _cli():
     if not dev:
         raise SystemExit("Keine Geräte im Konto.")
     up, down = (f"SF/GGS/{dev['prefix']}/API/{x}/{dev['serial']}" for x in ("UP", "DOWN"))
+    every = f"SF/GGS/+/API/+/{dev['serial']}"  # alle Richtungen/Präfixe dieses Geräts
+    seen = {"n": 0}
+
+    def on_connect(cl, _u, _f, rc, *_):
+        print(f"MQTT verbunden: {rc}")
+        for t in (up, every):
+            print(f"  abonniere {t} (mid {cl.subscribe(t, qos=0)[1]})")
+
+    def on_subscribe(_c, _u, mid, granted, *_):
+        codes = [getattr(g, "value", g) for g in (granted if isinstance(granted, (list, tuple)) else [granted])]
+        print(f"  Abo mid {mid}: {codes}" + ("  <- ABGELEHNT (128)" if 128 in codes else ""))
 
     def on_message(_c, _u, m):
+        seen["n"] += 1
         txt = m.payload.decode(errors="replace")
-        print("\nRoh:", txt[:2000])
+        print(f"\n[{time.strftime('%H:%M:%S')}] {m.topic}\n  Roh: {txt[:1500]}")
         try:
-            print("Erkannt:", parse_status(json.loads(txt)))
+            print("  Erkannt:", parse_status(json.loads(txt)))
         except ValueError:
             pass
 
-    c = mqtt_client(sess, on_message, lambda cl, *a: cl.subscribe(up))
+    def on_disconnect(*a):
+        print(f"MQTT getrennt: {a[-2] if len(a) > 3 else a}")
+
+    c = mqtt_client(sess, on_message, on_connect)
+    c.on_subscribe, c.on_disconnect = on_subscribe, on_disconnect
     c.connect(MQTT_HOST, MQTT_PORT, keepalive=30)
     c.loop_start()
-    time.sleep(2)
-    c.publish(down, json.dumps({"method": "getDevSta", "params": {"pid": dev["serial"]}, "msgId": str(int(time.time() * 1000))}))
-    print(f"\nWarte 20 s auf Daten von {dev['name']} …")
-    time.sleep(20)
+    time.sleep(3)
+    print(f"\nFrage {dev['name']} 60 s lang alle 15 s ab (Format wie die Cloud) …")
+    for _ in range(4):
+        cmd = dev_command("getDevSta", dev["serial"], sess["user_id"])
+        info = c.publish(down, json.dumps(cmd, separators=(",", ":")))
+        print(f"  -> getDevSta an {down} (rc {info.rc})")
+        time.sleep(15)
     c.loop_stop()
     c.disconnect()
+    print(f"\nFertig, {seen['n']} Nachricht(en) empfangen.")
 
 
 if __name__ == "__main__":

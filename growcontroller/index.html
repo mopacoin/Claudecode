@@ -380,17 +380,22 @@ function renderOverview() {
   }).join('');
   $('#zmark').style.left = Math.min(100, (S.vpd ?? 0) / 2 * 100) + '%';
   $('#banner').innerHTML = (S.alarms.length ? `<div class="banner">${ico('bell')}<div>${S.alarms.map(a => `<div><b>${esc(a.msg)}</b></div>`).join('')}</div></div>` : '')
-    + (S.exhaust?.notes || []).map(n => `<div class="banner info">${ico(n.key === 'temp' ? 'thermo' : 'drops')}<div>${roomNote(n)}</div></div>`).join('');
+    + (S.exhaust?.notes || []).filter(noteRelevant).map(n => `<div class="banner info">${ico(n.key === 'temp' ? 'thermo' : 'drops')}<div>${roomNote(n)}</div></div>`).join('');
   renderLight(); renderIrrMini(); renderRoom();
 }
+function noteRelevant(n) {  // im Zielbereich (Soll + Hysterese) kein Warnhinweis
+  const r = S.readings, cl = CFG?.values?.climate || {};
+  return n.key === 'temp' ? r.temp > S.targets.temp + (cl.temp_hyst ?? 1) : r.hum > S.targets.hum + (cl.hum_hyst ?? 5);
+}
 function roomNote(n) {
-  const t = S.targets;
+  const t = S.targets, r = S.readings, f = v => String(v).replace('.', ',');
   if (n.key === 'temp') return n.useless
     ? `<b>Abluft kühlt nicht:</b> Der Raum ist mit ${n.room} °C so warm, dass mehr Abluft das Zelt nicht unter das Ziel von ${t.temp} °C bringt. Die Abluft bleibt bei Grundlast. Zum Kühlen bräuchte es z. B. ein Klimagerät oder kühlere Zuluft.`
     : `<b>Ziel ${t.temp} °C per Abluft nicht erreichbar:</b> Der Raum hat ${n.room} °C, mehr Abluft kühlt das Zelt nur bis etwa ${n.floor} °C. Die Abluft regelt nur noch auf diesen Wert.`;
+  const why = n.room_ah != null ? ` Die Raumluft hat zwar nur ${f(n.room)} %, ist mit ${f(n.room_t)} °C aber wärmer und enthält ${f(n.room_ah.toFixed(1))} g/m³ Wasser – das Zelt ${f(n.tent_ah.toFixed(1))} g/m³. Auf ${f(r.temp)} °C abgekühlt hätte die Raumluft ${f(n.best)} %; tiefer kann die Abluft das Zelt nie bringen.` : '';
   return n.useless
-    ? `<b>Abluft entfeuchtet nicht:</b> Die Raumluft (${n.room} %) ist so feucht, dass mehr Abluft die Luftfeuchte im Zelt nicht senkt. Hier hilft nur ein Entfeuchter.`
-    : `<b>Ziel ${t.hum} % per Abluft nicht erreichbar:</b> Mit der Raumluft sinkt die Luftfeuchte im Zelt nur bis etwa ${n.floor} %.`;
+    ? `<b>Abluft entfeuchtet kaum:</b>${why} Hier hilft nur der Entfeuchter.`
+    : `<b>Ziel ${t.hum} % per Abluft nicht erreichbar:</b>${why}`;
 }
 function renderRoom() {
   const r = S.readings, card = $('#roomCard');

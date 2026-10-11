@@ -98,3 +98,15 @@ class TestDeviceLearning(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRoomNote(unittest.TestCase):
+    def test_warmer_room_air_is_not_drier(self):
+        # Fall aus dem Betrieb: Zelt 19,6 °C / 61 %, Raum 19,9 °C / 59,1 % – gleiche absolute Feuchte
+        ex = dict(settings.DEFAULTS["exhaust"])
+        w, notes = rules.exhaust_plan(ex, False, 19.6, 61, 18, 60, room_t=19.9, room_h=59.1)
+        n = next(x for x in notes if x["key"] == "hum")
+        self.assertAlmostEqual(n["best"], 60.1, delta=0.1)
+        self.assertAlmostEqual(n["room_ah"], 10.15, delta=0.05)
+        self.assertAlmostEqual(n["tent_ah"], 10.3, delta=0.05)
+        self.assertTrue(n["useless"])

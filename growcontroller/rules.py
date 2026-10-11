@@ -154,11 +154,15 @@ def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=No
             ff.pop("temp", None)  # Raumluft begrenzt: nicht auf ein unerreichbares Ziel vorsteuern
             notes.append({"key": "temp", "floor": round(floor_t, 1), "room": room_t, "useless": floor_t >= temp})
         if room_h is not None and temp is not None and hum is not None:
-            floor_h = rh_at(temp, abs_hum(room_t, room_h)) + 2
+            room_ah = abs_hum(room_t, room_h)
+            best = rh_at(temp, room_ah)  # Raumluft auf Zelttemperatur gebracht: tiefer kommt die Abluft nie
+            floor_h = best + 2           # Puffer: Abluft nähert sich dem Wert nur langsam an, Sensoren ±2–3 %
             if hum > h_target and floor_h > h_target:
                 h_goal = floor_h
                 ff.pop("hum", None)
-                notes.append({"key": "hum", "floor": round(min(floor_h, 100), 1), "room": room_h, "useless": floor_h >= hum})
+                notes.append({"key": "hum", "floor": round(min(floor_h, 100), 1), "best": round(min(best, 100), 1),
+                              "room": room_h, "room_t": room_t, "room_ah": round(room_ah, 2),
+                              "tent_ah": round(abs_hum(temp, hum), 2), "useless": floor_h >= hum})
     ft = (temp - t_goal) / cfg["temp_band"] if temp is not None else 0
     fh = (hum - h_goal) / cfg["hum_band"] if hum is not None else 0
     # Gerätekopplung (Interlock): Abluft arbeitet nicht gegen Entfeuchter, Befeuchter oder Heizung.

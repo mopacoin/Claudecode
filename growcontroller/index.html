@@ -484,6 +484,9 @@ function soilSeries() {  // Bodenfeuchte und EC je Boden-Sensor (z. B. GGS 1, GG
   const extra = ps.flatMap((p, i) => [[p + 'soil_hum', label(p) + ' Bodenfeuchte', '%', i ? '--soil2' : '--soil'], [p + 'soil_ec', label(p) + ' EC', 'mS/cm', i ? '--ec2' : '--ec']]);
   const next = [...BASE_SERIES, ...extra];
   if (next.map(s => s[0]).join() !== SERIES.map(s => s[0]).join()) { SERIES = next; buildChips(); drawAll(); }
+  const probes = Object.keys(S.readings).filter(k => /soil\d*_hum$/.test(k)).sort().join();  // Sondenauswahl Crop Steering aktuell halten
+  const form = $('#f-steering form');
+  if (CFG && form && probes !== soilSeries.probes && !form.dataset.dirty) { soilSeries.probes = probes; buildForm('steering'); }
 }
 $('#rangeChips').onclick = e => { if (e.target.dataset.r) { range = e.target.dataset.r; loadHistory(); } };
 $('#seriesChips').onclick = e => { const k = e.target.dataset.k; if (!k) return; shown.has(k) ? shown.delete(k) : shown.add(k); drawAll(); };
@@ -809,9 +812,10 @@ function fieldHTML(sec, f, v, ns) {
 const bindVis = form => { const vis = () => form.querySelectorAll('[data-sk]').forEach(r => r.style.display = form.elements[r.dataset.sk].value === r.dataset.sv ? '' : 'none'); vis(); form.addEventListener('change', vis); };
 function soilOptions(cur) {  // alle Bodenfeuchte-Werte (Mittelwert und je Sonde) als Auswahl, z. B. "GGS 1 · Sonde 2"
   const label = p => Object.values(S?.sensors || {}).find(s => s.prefix === p)?.label || p.replace(/_$/, '').toUpperCase() || 'Sensor';
-  const keys = Object.keys(S?.readings || {}).filter(k => /soil\d*_hum$/.test(k)).sort();
-  if (cur && !keys.includes(cur)) keys.unshift(cur);
-  return [['', '– wählen –'], ...keys.map(k => { const m = /^(.*?)soil(\d*)_hum$/.exec(k); return [k, `${label(m[1])} · ${m[2] ? 'Sonde ' + m[2] : 'Mittelwert'}`]; })];
+  const name = k => { const m = /^(.*?)soil(\d*)_hum$/.exec(k); return m ? `${label(m[1])} · ${m[2] ? 'Sonde ' + m[2] : 'Mittelwert'}` : k; };
+  const keys = Object.keys(S?.readings || {}).filter(k => /soil\d*_hum$/.test(k)).sort((a, b) => name(a).localeCompare(name(b), 'de', {numeric: true}));
+  if (cur && !keys.includes(cur)) keys.unshift(cur);  // gewählte Sonde gerade ohne Werte: trotzdem anzeigen
+  return [['', '– wählen –'], ...keys.map(k => [k, name(k)])];
 }
 function renderSteer() {
   const st = S.steering, card = $('#steerInfo');

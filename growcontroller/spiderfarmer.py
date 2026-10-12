@@ -86,11 +86,26 @@ class Reassembler:
     def feed(self, data):
         out = []
         self.buf += bytes(data)
-        while len(self.buf) >= 6:
-            if self.buf[:2] != b"\xAA\xAA":
-                i = self.buf.find(b"\xAA\xAA", 1)
-                self.buf = self.buf[i:] if i > 0 else b""
+        while self.buf:
+            if self.buf[:1] == b"{":  # kurze Antworten kommen ohne Rahmen als reines JSON
+                try:
+                    end = json.JSONDecoder().raw_decode(self.buf.decode("latin-1"))[1]  # latin-1: Index = Byte
+                except ValueError:
+                    if len(self.buf) < 4096 and b"\xAA\xAA" not in self.buf:
+                        break  # noch unvollständig
+                    self._resync()
+                    continue
+                try:
+                    out.append(json.loads(self.buf[:end]))
+                except ValueError:
+                    pass
+                self.buf = self.buf[end:]
                 continue
+            if self.buf[:2] != b"\xAA\xAA":
+                self._resync()
+                continue
+            if len(self.buf) < 6:
+                break
             n = struct.unpack(">H", self.buf[4:6])[0] + 8
             if len(self.buf) < n:
                 break
@@ -108,6 +123,11 @@ class Reassembler:
                 except ValueError:
                     pass
         return out
+
+    def _resync(self):
+        """Bis zum nächsten Rahmen- oder JSON-Anfang verwerfen."""
+        cands = [i for i in (self.buf.find(b"\xAA\xAA", 1), self.buf.find(b'{"', 1)) if i > 0]
+        self.buf = self.buf[min(cands):] if cands else b""
 
 
 def readings(dev_sta):

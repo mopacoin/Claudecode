@@ -87,6 +87,17 @@ class TestProtocol(unittest.TestCase):
         self.assertEqual(r["soil1_ec"], 2.1)       # Sonde ...0630A775 (sortiert nach ID)
         self.assertEqual(sum(k.endswith("_ec") for k in r), 5)
 
+    def test_unframed_json_between_frames(self):
+        # GGS ohne Sensoren: kurze Antworten kommen als reines JSON, auch über zwei Pakete verteilt
+        raw = (b'{"method":"getDevSta","pid":"80F1B2B2E850","pcode":1002,"uid":"","UTC":1791813072,"code":200,"msg":"ok",'
+               b'"data":{"outlet":{"psmode":0,"O1":{"on":1},"O2":{"on":1},"O3":{"on":1},"O4":{"on":0},"O5":{"on":0}}}}')
+        rx = sf.Reassembler()
+        msgs = rx.feed(raw[:120]) + rx.feed(raw[120:] + DEV[0]) + rx.feed(DEV[1] + DEV[2] + raw)
+        self.assertEqual([m["method"] for m in msgs], ["getDevSta"] * 3)
+        self.assertEqual(msgs[0]["data"]["outlet"]["O4"], {"on": 0})
+        self.assertEqual(sf.readings(msgs[0]), {})       # keine Sensoren -> keine Messwerte
+        self.assertEqual(rx.buf, b"")
+
     def test_bad_crc_is_dropped(self):
         broken = DEV[2][:-1] + bytes([DEV[2][-1] ^ 1])
         self.assertEqual(sf.Reassembler().feed(DEV[0] + DEV[1] + broken), [])

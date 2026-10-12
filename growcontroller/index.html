@@ -411,9 +411,10 @@ function renderRoom() {
 function renderSoil() {
   // Bodenwerte (z. B. Spider Farmer GGS) je Sensor: Mittelwert <p>soil_temp/hum/ec und je Sonde <p>soil1_…
   const r = S.readings, card = $('#soilCard');
-  const ps = [...new Set(Object.keys(r).filter(x => /soil_(ec|hum)$/.test(x)).map(x => x.slice(0, x.lastIndexOf('soil_'))))].sort();
-  card.style.display = ps.length ? '' : 'none'; if (!ps.length) return;
   const label = p => Object.values(S.sensors || {}).find(s => s.prefix === p)?.label || p.replace(/_$/, '').toUpperCase() || 'Sensor';
+  const ps = [...new Set(Object.keys(r).filter(x => /soil_(ec|hum)$/.test(x)).map(x => x.slice(0, x.lastIndexOf('soil_'))))]
+    .sort((a, b) => label(a).localeCompare(label(b), 'de', {numeric: true}));
+  card.style.display = ps.length ? '' : 'none'; if (!ps.length) return;
   const big = (x, u) => `<div style="font-size:22px;font-weight:700">${x ?? '–'}<small class="sub"> ${u}</small></div>`;
   card.innerHTML = `<h3>${ico('grid')} Substrat</h3>` + ps.map((p, i) => {
     const v = x => r[p + x] ?? '–';

@@ -219,6 +219,10 @@ class SpiderFarmerBackend(WorkerBackend):
     def _send(self, on):
         self.link.set_outlet(self.outlet, bool(on))
 
+    def actual(self):
+        """Vom Controller gemeldeter Zustand (True/False) oder None."""
+        return self.link.outlet(self.outlet)
+
 
 class MqttHub:
     """Ein MQTT-Client pro Broker, mit automatischem Wiederverbinden."""

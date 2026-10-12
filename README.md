@@ -79,6 +79,8 @@ Govee-Sensoren testen: `.venv/bin/python -m growcontroller.govee_scan <MAC> …`
 ## Ausgangs-Typen (`config.json` → `outputs`)
 Jeder Ausgang hat `type` und optional `role` (Standard = Name). Rollen: `light`, `fan`, `heater`, `humidifier`,
 `dehumidifier`, `pump`, `vent` und `intake` (Abluft-Klappe/Zuluft, folgen dem Lüfterbedarf). Mehrere Ausgänge mit derselben Rolle schalten gemeinsam.
+Rolle `manual`: keine Automatik, nur Ein/Aus von Hand im Dashboard; „Frei“ lässt das Gerät in Ruhe (auch beim Start und Beenden des
+Dienstes), angezeigt wird der vom Gerät gemeldete Zustand.
 
 | type | Zweck | wichtige Felder |
 |---|---|---|
@@ -97,7 +99,7 @@ Steckdose ist dann aus) und schreibt nur, wenn der gemeldete Zustand abweicht. G
 neuere Firmware verschlüsselt anders.
 ```json
 "sensors": { "ggs": { "driver": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "uid": "123456", "prefix": "ggs_" } },
-"outputs": { "ggs_o5": { "type": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "uid": "123456", "outlet": 5, "role": "fan" } }
+"outputs": { "ggs_o5": { "type": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "uid": "123456", "outlet": 5, "role": "manual" } }
 ```
 
 Geheimnisse: `.env.example` nach `.env` kopieren (nie committen). Zugangsdaten als `${MEROSS_PASSWORD}`, `${TUYA_LOCAL_KEY}` usw. schreiben und als Umgebungsvariablen setzen

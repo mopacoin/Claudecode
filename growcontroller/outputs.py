@@ -6,6 +6,7 @@ import logging
 from . import backends
 
 log = logging.getLogger("grow.outputs")
+MANUAL = "manual"  # Rolle ohne Automatik: nur Ein/Aus von Hand, wird beim Start/Beenden nicht geschaltet
 
 
 class DeadBackend:
@@ -48,11 +49,15 @@ class Output:
         self.state = False
         self.changed = time.monotonic() - min_switch_s
         self._max_hit = False  # Laufzeitbegrenzung ausgelöst -> erst nach "aus" wieder freigeben
-        if not proportional:
+        self.manual = self.role == MANUAL
+        self._cmd = None
+        if not proportional and not self.manual:
             backend.set(False)
 
     def apply(self, want):
         """want = Sollzustand der Automatik für diese Rolle; Modus kann überschreiben."""
+        if self.manual:
+            return self._apply_manual()
         if self.mode in ("on", "off"):
             want = self.mode == "on"
         now = time.monotonic()
@@ -66,6 +71,21 @@ class Output:
             self.state, self.changed = want, now
             self.backend.set(want)
 
+    def _apply_manual(self):
+        """Rolle "manual": keine Regel. Ein/Aus von Hand, "auto" (= frei) lässt das Gerät in Ruhe.
+        Angezeigt wird der vom Gerät gemeldete Zustand, falls das Backend ihn kennt."""
+        if self.mode in ("on", "off"):
+            want = self.mode == "on"
+            if want != self._cmd:
+                self._cmd, self.changed = want, time.monotonic()
+                self.backend.set(want)
+        elif self._cmd is not None:
+            self._cmd = None
+            if hasattr(self.backend, "desired"):
+                self.backend.set(None)  # Netzwerk-Backend: nicht mehr auffrischen
+        actual = self.backend.actual() if hasattr(self.backend, "actual") else None
+        self.state = bool(self._cmd) if actual is None else actual
+
     def apply_level(self, angle, watts, deadband=3):
         """Stufenlos: Winkel nur senden, wenn er sich um mindestens `deadband` Grad ändert."""
         angle = int(round(max(0, min(180, angle))))
@@ -75,6 +95,8 @@ class Output:
         self.watts = watts
 
     def shutdown(self):
+        if self.manual:
+            return  # von Hand geschaltete Geräte beim Beenden nicht anfassen
         self.state = self.safe_state
         self.backend.set(self.safe_state)
 

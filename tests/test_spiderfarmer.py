@@ -152,5 +152,37 @@ class TestLink(unittest.TestCase):
             s.read()
 
 
+class Reported:
+    """Backend mit gemeldetem Zustand (wie SpiderFarmerBackend), ohne Thread."""
+    def __init__(self, actual=True):
+        self.calls, self.now, self.desired = [], actual, None
+    def set(self, on):
+        self.calls.append(on); self.desired = on
+        if on is not None:
+            self.now = on
+    def actual(self): return self.now
+    def close(self): pass
+
+
+class TestManualRole(unittest.TestCase):
+    def test_free_mode_never_switches(self):
+        be = Reported(actual=True)
+        o = outputs.Output("ggs_o1", be, role="manual")
+        o.apply(False); o.apply(True); o.shutdown()
+        self.assertEqual(be.calls, [])          # kein Ausschalten beim Start/Beenden, keine Regel
+        self.assertTrue(o.state)                # zeigt den gemeldeten Zustand
+
+    def test_on_off_by_hand_then_free(self):
+        be = Reported(actual=True)
+        o = outputs.Output("ggs_o5", be, role="manual")
+        o.mode = "off"; o.apply(True); o.apply(True)
+        self.assertEqual(be.calls, [False]);  self.assertFalse(o.state)
+        o.mode = "on"; o.apply(False)
+        self.assertEqual(be.calls, [False, True]); self.assertTrue(o.state)
+        o.mode = "auto"; o.apply(False)
+        self.assertEqual(be.calls, [False, True, None])   # Auffrischen beenden, Zustand bleibt
+        self.assertTrue(o.state)
+
+
 if __name__ == "__main__":
     unittest.main()

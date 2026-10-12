@@ -6,7 +6,7 @@
 <title>Growdashboard</title>
 <style>
 :root{--bg:#070b09;--card:rgba(255,255,255,.045);--card2:rgba(255,255,255,.07);--line:rgba(255,255,255,.09);--text:#eaf3ee;--mute:#8aa196;
---acc:#3ddc97;--acc2:#a3e635;--temp:#ff8a5c;--hum:#4db8ff;--vpd:#b794ff;--temp2:#ffc9a8;--hum2:#a9dcff;--ok:#3ddc97;--warn:#ffb547;--bad:#ff5d6c;
+--acc:#3ddc97;--acc2:#a3e635;--temp:#ff8a5c;--hum:#4db8ff;--vpd:#b794ff;--temp2:#ffc9a8;--hum2:#a9dcff;--soil:#2dd4bf;--ec:#ffb547;--soil2:#a3e635;--ec2:#ff5d8f;--ok:#3ddc97;--warn:#ffb547;--bad:#ff5d6c;
 --glow:0 0 0 1px var(--line),0 10px 30px -12px rgba(0,0,0,.6);--r:18px;--side:236px;--onacc:#03130b}
 @media(prefers-color-scheme:light){:root{--bg:#eef3f0;--card:rgba(255,255,255,.85);--card2:rgba(0,0,0,.04);--line:rgba(10,40,25,.09);--text:#13201a;--mute:#5f7569;
 --acc:#13a463;--acc2:#6aa80f;--temp:#e5532b;--hum:#1a7fd4;--vpd:#7c4ddb;--ok:#13a463;--warn:#d98a0b;--bad:#e03a4b;
@@ -202,7 +202,8 @@ tr+tr td{border-top:1px solid var(--line)}
 
       <section class="tab" id="tab-climate"><div id="f-climate" class="card"></div><div id="f-exhaust" class="card mt"></div><div id="effCard" class="card mt" style="display:none"></div></section>
       <section class="tab" id="tab-light"><div id="f-light" class="card"></div></section>
-      <section class="tab" id="tab-irrigation"><div id="f-irrigation" class="card"></div></section>
+      <section class="tab" id="tab-irrigation"><div id="f-irrigation" class="card"></div>
+        <div class="card mt" id="steerInfo" style="display:none"></div><div id="f-steering" class="card mt"></div></section>
       <section class="tab" id="tab-alarms">
         <div class="card" id="alarmList"></div><div id="f-alarms" class="card mt"></div>
       </section>
@@ -217,6 +218,7 @@ tr+tr td{border-top:1px solid var(--line)}
           <div class="card"><h3>System</h3><div id="sys"></div></div>
           <div class="card"><h3>Datenexport</h3><p class="hint">Verlauf als CSV, 1 Wert pro Minute.</p><div class="chips" id="exports"></div></div>
           <div class="card"><h3>Zugang</h3><p class="hint" id="authHint"></p><button class="sec" id="tokBtn">Token ändern</button></div>
+          <div class="card"><h3>Benachrichtigungen</h3><p class="hint" id="notifyHint"></p><button class="sec" id="notifyBtn">Test senden</button></div>
         </div>
         <div class="card mt"><h3>Hardware</h3><div style="overflow-x:auto"><table id="hw"></table></div></div>
         <div class="card mt"><div class="row"><h3 class="sp" style="margin:0">Ereignisprotokoll</h3><div class="chips" id="evChips"></div></div>
@@ -256,7 +258,7 @@ const LABEL = {light: 'Licht', fan: 'Lüfter', heater: 'Heizung', humidifier: 'B
 const TABS = [['overview', 'Übersicht', 'Übersicht', 'grid'], ['devices', 'Geräte', 'Geräte', 'cpu'], ['climate', 'Klima', 'Klima', 'thermo'],
   ['light', 'Licht', 'Licht', 'sun'], ['irrigation', 'Bewässerung', 'Wasser', 'drop'], ['alarms', 'Alarme', 'Alarme', 'bell'],
   ['cycle', 'Zyklus', 'Zyklus', 'leaf'], ['system', 'System', 'System', 'sliders']];
-const SERIES = [['temp', 'Temperatur', '°C', '--temp'], ['hum', 'Luftfeuchte', '%', '--hum'], ['vpd', 'VPD', 'kPa', '--vpd'],
+let SERIES = [['temp', 'Temperatur', '°C', '--temp'], ['hum', 'Luftfeuchte', '%', '--hum'], ['vpd', 'VPD', 'kPa', '--vpd'],
   ['room_temp', 'Raum Temp.', '°C', '--temp2'], ['room_hum', 'Raum Feuchte', '%', '--hum2']];
 const RANGES = [['1h', '1 Std'], ['6h', '6 Std'], ['24h', '24 Std'], ['7d', '7 Tage']];
 
@@ -283,6 +285,17 @@ const FORMS = {
   irrigation: {title: 'Bewässerung', fields: [
     {k: 'enabled', l: 'Automatische Bewässerung', t: 'bool'}, {k: 'interval_min', l: 'Intervall', u: 'min', step: 1},
     {k: 'duration_s', l: 'Pumpendauer', u: 's', step: 1}, {k: 'from_hour', l: 'Erlaubt ab', u: 'Uhr', step: 1}, {k: 'to_hour', l: 'Erlaubt bis', u: 'Uhr', step: 1}]},
+  steering: {title: 'Crop Steering (nach Bodenfeuchte)', fields: [
+    {k: 'enabled', l: 'Crop Steering aktiv (ersetzt die Intervall-Bewässerung)', t: 'bool'},
+    {k: 'sensor', l: 'Bodensonde', t: 'select', soil: true},
+    {k: 'target', l: 'Ziel-Bodenfeuchte (P1 bis hierhin)', u: '%', step: .5},
+    {k: 'p1_delay_min', l: 'Erster Schuss nach Licht an', u: 'min', step: 5},
+    {k: 'shot_s', l: 'Schussgröße (Pumpenlaufzeit)', u: 's', step: 1},
+    {k: 'gap_min', l: 'Mindestabstand zwischen Schüssen', u: 'min', step: 1},
+    {k: 'p2_drop', l: 'P2: nachgießen, wenn so weit unter Ziel', u: '%', step: .5},
+    {k: 'stop_min', l: 'P3: Gießstopp vor Licht aus (Dryback)', u: 'min', step: 5},
+    {k: 'max_shots', l: 'Höchstens Schüsse pro Tag', step: 1}],
+   hint: 'P0 warten nach Licht an → P1 in Schüssen bis zur Ziel-Feuchte → P2 halten → P3 vor Licht aus kein Wasser, damit das Substrat über Nacht abtrocknet (Dryback). Ohne gültige Bodenwerte wird aus Sicherheit nicht gegossen. Nutzt den Ausgang mit Rolle „Pumpe“.'},
   alarms: {title: 'Alarmgrenzen', fields: [
     {k: 'enabled', l: 'Alarme aktiv', t: 'bool'}, {k: 'temp_min', l: 'Temperatur min', u: '°C', step: .5}, {k: 'temp_max', l: 'Temperatur max', u: '°C', step: .5},
     {k: 'hum_min', l: 'Luftfeuchte min', u: '%', step: 1}, {k: 'hum_max', l: 'Luftfeuchte max', u: '%', step: 1}, {k: 'delay_min', l: 'Verzögerung bis Alarm', u: 'min', step: 1}],
@@ -460,7 +473,18 @@ function renderHeader() {
 
 // ---- Diagramm ----
 $('#rangeChips').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-r="${r}">${l}</button>`).join('');
-$('#seriesChips').innerHTML = SERIES.map(([k, l, u, c]) => `<button class="chip s" data-k="${k}" style="--c:var(${c})">${l}</button>`).join('');
+function buildChips() { $('#seriesChips').innerHTML = SERIES.map(([k, l, u, c]) => `<button class="chip s" data-k="${k}" style="--c:var(${c})">${esc(l)}</button>`).join(''); }
+buildChips();
+const BASE_SERIES = SERIES.slice();
+function soilSeries() {  // Bodenfeuchte und EC je Boden-Sensor (z. B. GGS 1, GGS 2) als zusätzliche Kurven
+  if (!S) return;
+  const label = p => Object.values(S.sensors || {}).find(s => s.prefix === p)?.label || p.replace(/_$/, '').toUpperCase();
+  const ps = [...new Set(Object.keys(S.readings).filter(x => /soil_(ec|hum)$/.test(x)).map(x => x.slice(0, x.lastIndexOf('soil_'))))]
+    .sort((a, b) => label(a).localeCompare(label(b), 'de', {numeric: true}));
+  const extra = ps.flatMap((p, i) => [[p + 'soil_hum', label(p) + ' Bodenfeuchte', '%', i ? '--soil2' : '--soil'], [p + 'soil_ec', label(p) + ' EC', 'mS/cm', i ? '--ec2' : '--ec']]);
+  const next = [...BASE_SERIES, ...extra];
+  if (next.map(s => s[0]).join() !== SERIES.map(s => s[0]).join()) { SERIES = next; buildChips(); drawAll(); }
+}
 $('#rangeChips').onclick = e => { if (e.target.dataset.r) { range = e.target.dataset.r; loadHistory(); } };
 $('#seriesChips').onclick = e => { const k = e.target.dataset.k; if (!k) return; shown.has(k) ? shown.delete(k) : shown.add(k); drawAll(); };
 async function loadHistory() {
@@ -776,13 +800,30 @@ function fieldHTML(sec, f, v, ns) {
   const at = `data-k="${f.k}" data-s="${sec}" ${f.show ? `data-sk="${ns ? sec + '.' : ''}${f.show[0]}" data-sv="${f.show[1]}"` : ''}`;
   if (t === 'bool') return `<div class="fld" ${at}><div class="tog"><label for="${id}">${f.l}</label><input id="${id}" type="checkbox" name="${nm}" ${v ? 'checked' : ''}></div><div class="err"></div></div>`;
   let inp;
-  if (t === 'select') { const o = f.dyn ? [['', '– keiner –'], ...Object.entries(CFG.presets).map(([k, p]) => [k, p.label])] : f.o;
+  if (t === 'select') { const o = f.dyn ? [['', '– keiner –'], ...Object.entries(CFG.presets).map(([k, p]) => [k, p.label])] : f.soil ? soilOptions(v) : f.o;
     inp = `<select name="${nm}">${o.map(([val, l]) => `<option value="${esc(val)}" ${v === val ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`; }
   else if (t === 'time' || t === 'date') inp = `<input type="${t}" name="${nm}" value="${v ?? ''}">`;
   else inp = `<input type="number" inputmode="decimal" name="${nm}" value="${v}" min="${sp[1]}" max="${sp[2]}" step="${f.step || 1}">`;
   return `<div class="fld" ${at}><label>${f.l}</label><div class="ig">${inp}${f.u ? `<span>${f.u}</span>` : ''}</div><div class="err"></div></div>`;
 }
 const bindVis = form => { const vis = () => form.querySelectorAll('[data-sk]').forEach(r => r.style.display = form.elements[r.dataset.sk].value === r.dataset.sv ? '' : 'none'); vis(); form.addEventListener('change', vis); };
+function soilOptions(cur) {  // alle Bodenfeuchte-Werte (Mittelwert und je Sonde) als Auswahl, z. B. "GGS 1 · Sonde 2"
+  const label = p => Object.values(S?.sensors || {}).find(s => s.prefix === p)?.label || p.replace(/_$/, '').toUpperCase() || 'Sensor';
+  const keys = Object.keys(S?.readings || {}).filter(k => /soil\d*_hum$/.test(k)).sort();
+  if (cur && !keys.includes(cur)) keys.unshift(cur);
+  return [['', '– wählen –'], ...keys.map(k => { const m = /^(.*?)soil(\d*)_hum$/.exec(k); return [k, `${label(m[1])} · ${m[2] ? 'Sonde ' + m[2] : 'Mittelwert'}`]; })];
+}
+function renderSteer() {
+  const st = S.steering, card = $('#steerInfo');
+  card.style.display = st ? '' : 'none'; if (!st) return;
+  const ph = {P0: 'P0 – warten nach Licht an', P1: 'P1 – Aufsättigen', P2: 'P2 – Halten', P3: 'P3 – Dryback', '?': 'keine Bodenwerte'}[st.phase] || st.phase;
+  card.innerHTML = `<h3>${ico('drop')} Crop Steering</h3><div class="row" style="gap:18px">
+    <div><div class="sub">Phase</div><b style="font-size:18px">${esc(ph)}</b></div>
+    <div><div class="sub">Bodenfeuchte</div><b style="font-size:18px">${st.moisture ?? '–'} %</b></div>
+    <div><div class="sub">Schüsse heute</div><b style="font-size:18px">${st.shots}</b></div>
+    <div><div class="sub">Dryback letzte Nacht</div><b style="font-size:18px">${st.dryback ?? '–'}${st.dryback != null ? ' %' : ''}</b></div></div>
+    <div class="sub" style="margin-top:8px">${esc(st.why)}${st.last_shot ? ` · letzter Schuss ${st.last_shot.slice(11, 16)}` : ''}</div>`;
+}
 function buildForm(sec) {
   const F = FORMS[sec], vals = CFG.values[sec], spec = CFG.spec[sec], box = $('#f-' + sec);
   const fields = F.fields.map(f => fieldHTML(sec, f, vals[f.k], false)).join('');
@@ -912,7 +953,13 @@ function renderSystem() {
     `<tr><td><b>${esc(LABEL[n] || n)}</b></td><td>${esc(o.info.type)}</td><td>${esc(o.role)}</td><td style="color:var(--${o.ok === false ? 'bad' : 'ok'})">${o.ok === false ? 'nicht erreichbar' : 'OK'}</td>
     <td class="sub">${esc(infoText(o))}</td></tr>`).join('');
   $('#authHint').textContent = CFG.auth ? 'Änderungen sind per Token geschützt.' : 'Kein Token gesetzt – jeder im Netzwerk kann Einstellungen ändern. Setze „web.token“ in config.json.';
+  const nt = S.notify || {};
+  $('#notifyHint').innerHTML = nt.channels?.length
+    ? `Alarme gehen per <b style="color:var(--text)">${nt.channels.join(' + ')}</b> aufs Handy (${nt.sent} gesendet).${nt.error ? ` <span style="color:var(--bad)">Letzter Fehler: ${esc(nt.error)}</span>` : ''}`
+    : 'Nicht eingerichtet – Abschnitt „notify“ in config.json (ntfy-Kanal oder Telegram-Bot), siehe README.';
+  $('#notifyBtn').style.display = nt.channels?.length ? '' : 'none';
 }
+$('#notifyBtn').onclick = async () => { try { await api('/api/notify/test', {}); toast('Test gesendet – kommt gleich aufs Handy'); } catch (e) { toast(e.data?.error || e.message, 1); } };
 $('#exports').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-x="${r}">⬇ ${l}</button>`).join('');
 $('#exports').onclick = async e => {
   const r = e.target.dataset.x; if (!r) return;
@@ -924,13 +971,14 @@ $('#tokBtn').onclick = () => { const t = prompt('Neues Token (leer = löschen):'
 // ---- Hauptschleife ----
 let built = false;
 function renderAll(rebuild) {
-  renderHeader(); renderOverview(); renderDevices(); renderAlarms(); renderSystem(); renderPresets(); renderEffect(); renderSmart();
+  renderHeader(); renderOverview(); renderDevices(); renderAlarms(); renderSystem(); renderPresets(); renderEffect(); renderSmart(); renderSteer();
   if (!built || rebuild) { Object.keys(FORMS).forEach(buildForm); built = true; }
 }
 async function poll() {
   try {
     if (!CFG) CFG = await api('/api/settings');
     S = await api('/api/status');
+    soilSeries();
     if (CFG.rev !== S.rev) {
       const editing = $('#dlg').open || [...document.querySelectorAll('form')].some(f => f.dataset.dirty);  // ungespeicherte Eingaben behalten
       if (!editing) { const fresh = await api('/api/settings'); CFG = {...fresh, rev: S.rev}; renderAll(true); return; }

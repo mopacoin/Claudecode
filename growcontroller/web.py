@@ -115,6 +115,9 @@ def make_handler(ctl, token):
                 except ValueError as e:
                     return self._send(400, {"error": str(e)})
                 return self._send(200, ctl.status())
+            if parts == ["api", "notify", "test"]:
+                err = ctl.notifier.send_now("Growcontroller", "Test-Benachrichtigung – kommt an ✓")
+                return self._send(400, {"error": err}) if err else self._send(200, {"ok": True})
             if len(parts) == 3 and parts[:2] == ["api", "ggs"]:
                 try:
                     ctl.ggs_mode(parts[2], body)

@@ -35,6 +35,12 @@ SPEC = {
         "intake_pct": ("int", 0, 100), "learn_effect": ("bool",), "use_effect": ("bool",),
     },
     "grow": {"stage": ("str", 40), "start_date": ("date",)},  # stage = Zyklus-ID (eingebaut oder eigen), "" = keiner
+    # Crop Steering: gießt nach Bodenfeuchte statt nach Timer (ersetzt dann die Intervall-Bewässerung)
+    "steering": {
+        "enabled": ("bool",), "sensor": ("str", 60), "target": ("num", 1, 100), "p1_delay_min": ("int", 0, 600),
+        "shot_s": ("int", 1, 600), "gap_min": ("int", 1, 240), "p2_drop": ("num", 0.5, 50), "stop_min": ("int", 0, 720),
+        "max_shots": ("int", 1, 200),
+    },
 }
 
 DEFAULTS = {
@@ -51,6 +57,8 @@ DEFAULTS = {
                 "auto_learn": True, "intake_pct": 40,
                 "learn_effect": True, "use_effect": True},
     "grow": {"stage": "", "start_date": ""},
+    "steering": {"enabled": False, "sensor": "", "target": 30, "p1_delay_min": 60, "shot_s": 20, "gap_min": 20,
+                 "p2_drop": 3, "stop_min": 120, "max_shots": 20},
 }
 
 DEFAULT_CAL = [[0, 20], [90, 25], [180, 85]]  # Abluft-Servo: [Winkel, Watt] – Startwerte, per Lernpunkt verfeinern

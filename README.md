@@ -73,6 +73,9 @@ Verlaufsdateien werden nach `history_days` (400) Tagen gelöscht, das Ereignispr
 `"prefix": "room_"` macht einen Sensor zum reinen Anzeige-Sensor (Raumklima), er regelt nicht.
 `"temp_offset"` / `"hum_offset"` gleichen Sensor-Abweichungen aus (z. B. `-0.4` °C, `+2` %).
 `"label"` ist der Anzeige-Name im Dashboard (z. B. `"GGS 1"` auf der Substrat-Karte; Standard: Name des Sensors).
+`"fallback": true` (bei einem Zusatz-Sensor mit `prefix`): Liefert der Haupt-Sensor 90 s lang nichts, regelt dieser Sensor
+Temperatur/Feuchte weiter (Alarm „Ersatzsensor regelt“), bis der Haupt-Sensor zurück ist. Nur für einen Sensor im selben Zelt!
+Bodenwerte (`…soil…`) stehen mit im CSV-Log und lassen sich im Verlauf als Kurven einblenden (Bodenfeuchte, EC je Controller).
 Werte, die länger als `sensor_timeout_s` (120 s) nicht aktualisiert wurden, verschwinden aus Anzeige und Regelung;
 fällt ein Zusatz-Sensor 5 min aus, gibt es einen Alarm.
 Govee-Sensoren testen: `.venv/bin/python -m growcontroller.govee_scan <MAC> …` zeigt Rohdaten und erkannte Werte.
@@ -118,6 +121,23 @@ Geheimnisse: `.env.example` nach `.env` kopieren (nie committen). Zugangsdaten a
 Netzwerk-Ausgänge senden im Hintergrund mit Wiederholung (alle 10 s bei Fehler, Auffrischen alle 60 s); in der Oberfläche
 zeigt ein ⚠ einen nicht erreichbaren Ausgang. Ist ein Gerät beim Start nicht verfügbar, läuft der Rest weiter.
 Ist ein Entfeuchter konfiguriert, übernimmt er die Feuchte-Abfuhr; sonst lüftet der Lüfter bei zu hoher Feuchte.
+
+## Benachrichtigungen (`config.json` → `notify`)
+Alarme (und „Behoben“) gehen aufs Handy, gleiche Meldungen höchstens alle `repeat_min` (30) Minuten:
+```json
+"notify": { "ntfy": { "topic": "mein-grow-ein-langer-zufallsname" }, "repeat_min": 30 }
+```
+**ntfy:** App „ntfy“ installieren, denselben Kanal (`topic`) abonnieren – fertig (eigener Server: `"url"`, Zugriffsschutz: `"token"`).
+Der Kanal ist öffentlich lesbar, wer den Namen kennt – daher einen langen Zufallsnamen nehmen.
+**Telegram:** `"telegram": {"token": "${TELEGRAM_TOKEN}", "chat_id": "123456789"}` (Bot über @BotFather anlegen).
+Test: System → Benachrichtigungen → „Test senden“ (`POST /api/notify/test`).
+
+## Crop Steering (Bewässerung → Crop Steering)
+Gießt nach Bodenfeuchte statt nach Timer und ersetzt dann die Intervall-Bewässerung (Ausgang mit Rolle `pump`):
+**P0** warten bis `p1_delay_min` nach Licht an → **P1** Schüsse (`shot_s`, Abstand `gap_min`) bis `target` % → **P2** nachgießen,
+wenn die Feuchte `p2_drop` % unter das Ziel fällt → **P3** ab `stop_min` vor Licht aus kein Wasser (Dryback über Nacht).
+Angezeigt werden Phase, Schüsse und der gemessene **Dryback** (Feuchte am Ende der Lichtphase minus am nächsten Morgen).
+Ohne gültigen Bodenwert wird nicht gegossen; höchstens `max_shots` Schüsse pro Tag. Standardmäßig aus.
 
 ## Start
 ```

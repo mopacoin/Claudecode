@@ -78,6 +78,54 @@ def irrigation_due(cfg, last_run, now):
     return last_run is None or (now - last_run).total_seconds() >= cfg["interval_min"] * 60
 
 
+def light_window(cfg, now):
+    """(Minuten seit Licht an, Minuten bis Licht aus) oder None, wenn das Licht aus ist. Auch über Mitternacht."""
+    on, off = _t(cfg["on"]), _t(cfg["off"])
+    on_m, off_m = on.hour * 60 + on.minute, off.hour * 60 + off.minute
+    dur = (off_m - on_m) % 1440 or 1440
+    since = (now.hour * 60 + now.minute - on_m) % 1440
+    return (since, dur - since) if since < dur else None
+
+
+def steering(cfg, light, now, moisture, st):
+    """Crop Steering (substratfeuchte-gesteuerte Bewässerung) – eine Entscheidung je Regeltakt.
+    cfg: target (Ziel-Bodenfeuchte %), p1_delay_min (erster Schuss nach Licht an), shot_s, gap_min (Mindestabstand),
+         p2_drop (Nachgießen, wenn so viel unter Ziel), stop_min (vor Licht aus kein Wasser mehr -> Dryback), max_shots.
+    st:  Zustand (wird verändert): day, reached, shots, last_shot (datetime), evening, morning, dryback.
+    -> (gießen: bool, Phase "P0"…"P3"/"aus", Begründung)"""
+    from datetime import timedelta
+    win = light_window(light, now) if light.get("enabled", True) else None
+    if win is None:
+        return False, "P3", "Licht aus – Dryback über Nacht"
+    since, until = win
+    day = (now - timedelta(minutes=since)).date().isoformat()   # Tag = Beginn der Lichtphase
+    if st.get("day") != day:
+        if moisture is not None and st.get("evening") is not None:
+            st["dryback"] = round(st["evening"] - moisture, 1)   # Abend (Ende Lichtphase) minus Morgen
+        st.update(day=day, reached=False, shots=0, morning=moisture)
+    if moisture is None:
+        return False, "?", "keine Bodenfeuchte – aus Sicherheit kein Wasser"
+    st["evening"] = moisture
+    if since < cfg["p1_delay_min"]:
+        return False, "P0", f"Start {cfg['p1_delay_min']} min nach Licht an"
+    if until <= cfg["stop_min"]:
+        return False, "P3", f"Gießstopp {cfg['stop_min']} min vor Licht aus (Dryback)"
+    if st.get("shots", 0) >= cfg["max_shots"]:
+        return False, "P2" if st.get("reached") else "P1", f"Tageslimit {cfg['max_shots']} Schüsse erreicht"
+    last = st.get("last_shot")
+    gap_ok = last is None or now - last >= timedelta(minutes=cfg["gap_min"])
+    if not st.get("reached"):
+        if moisture >= cfg["target"]:
+            st["reached"] = True
+        else:
+            return gap_ok, "P1", (f"Aufsättigen: {moisture} % → Ziel {cfg['target']} %" if gap_ok
+                                  else f"Aufsättigen: warte {cfg['gap_min']} min zwischen Schüssen")
+    low = cfg["target"] - cfg["p2_drop"]
+    if moisture < low:
+        return gap_ok, "P2", f"Nachgießen: {moisture} % < {round(low, 1)} %" if gap_ok else "Nachgießen: Mindestabstand"
+    return False, "P2", f"Halten: {moisture} % (nachgießen unter {round(low, 1)} %)"
+
+
 def svp(t):
     """Sättigungsdampfdruck in kPa (Tetens)."""
     return 0.6108 * math.exp(17.27 * t / (t + 237.3))

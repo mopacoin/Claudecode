@@ -9,7 +9,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timedelta
 
-from . import outputs, rules, sensors, settings
+from . import notify, outputs, rules, sensors, settings
 
 log = logging.getLogger("grow")
 RANGES = {"1h": 1, "6h": 6, "24h": 24, "7d": 168}
@@ -25,6 +25,7 @@ EFF_BIN = 5           # Watt je Wirksamkeits-Fach
 EFF_WIN = 10          # so viele Minuten muss alles ruhig sein, bevor ein Wirksamkeits-Punkt zählt
 EFF_LIGHT_MIN = 30    # nach Licht an/aus so lange warten (Lampenwärme/Verdunstung schwingen erst ein)
 DEV_ROLES = ("dehumidifier", "humidifier", "heater")
+FALLBACK_S = 90       # so lange ohne Werte vom Haupt-Sensor, bis ein Ersatzsensor einspringt
 GGS_ROLES = ("light", "fan", "heater", "humidifier", "dehumidifier", "pump", "vent", "intake")  # Modus "Growcontroller"
 DEV_POWER = {"dehumidifier": 250, "humidifier": 30, "heater": 300}   # Annahme, wenn "power_w" nicht in config.json steht
 DEV_SETTLE_MIN = 3    # Wirkung erst ab Minute 3 nach dem Einschalten messen
@@ -43,12 +44,15 @@ class Controller:
         self.state_dir = state_dir
         os.makedirs(state_dir, exist_ok=True)
         self.started = time.time()
+        self.notifier = notify.Notifier(cfg.get("notify"))
         self.saved = settings.load(self._p("settings.json"))
         for sec, d in settings.DEFAULTS.items():  # Defaults < config.json < gespeicherte Einstellungen
             cfg[sec] = {**d, **cfg.get(sec, {}), **self.saved.get(sec, {})}
         # prefix: z. B. "room_" für einen Raum-Sensor, der nur angezeigt wird und nicht regelt
         self.sensors = {n: (c.get("prefix", ""), sensors.create(c)) for n, c in cfg["sensors"].items()}
         self.sensor_labels = {n: c.get("label", n) for n, c in cfg["sensors"].items()}  # Anzeige-Name im Dashboard
+        self._fallbacks = [n for n, c in cfg["sensors"].items() if c.get("fallback") and c.get("prefix")]
+        self.fallback = None  # Name des Ersatzsensors, solange er für den Haupt-Sensor einspringt
         # Kalibrier-Versatz je Sensor (z. B. "temp_offset": -0.4, "hum_offset": 2) – wie bei Profi-Controllern
         self._offsets = {n: (float(c.get("temp_offset", 0)), float(c.get("hum_offset", 0))) for n, c in cfg["sensors"].items()}
         self._sensor_ok = {n: time.monotonic() for n in self.sensors}  # letzte erfolgreiche Messung je Sensor
@@ -77,6 +81,7 @@ class Controller:
         self.dev_eff = {k: v for k, v in self.saved.get("effect", {}).get("devices", {}).items() if isinstance(v, dict)}
         self._ep, self._wait, self.smart = {}, None, {"reasons": {}, "forecast": None}
         self._lrn = {"angle": None, "since": 0.0, "last": 0.0, "saved": time.monotonic()}
+        self._soil_cols = []  # Bodenwert-Spalten im CSV-Log (in Reihenfolge des ersten Auftretens)
         self.fresh = {}  # Messwerte genau dieses Regeltakts (ohne veraltete)
         self.readings = {}
         self.last_ok = None
@@ -88,7 +93,10 @@ class Controller:
         self._last_minute = None
         self._adv_block = None
         self.pump_until = 0.0
-        self.last_irrigation = self._load_state().get("last_irrigation")
+        st = self._load_state()
+        self.last_irrigation = st.get("last_irrigation")
+        self.steer = st.get("steer", {})      # Crop-Steering-Tageszustand (Schüsse, Dryback …), übersteht Neustarts
+        self.steer_info = None
         self.lock = threading.RLock()
         self.stop_evt = threading.Event()
         self._load_history()
@@ -104,20 +112,25 @@ class Controller:
                 d = json.load(f)
             if d.get("last_irrigation"):
                 d["last_irrigation"] = datetime.fromisoformat(d["last_irrigation"])
+            if (d.get("steer") or {}).get("last_shot"):
+                d["steer"]["last_shot"] = datetime.fromisoformat(d["steer"]["last_shot"])
             return d
         except (OSError, ValueError):
             return {}
 
     def _save_state(self):
         li = self.last_irrigation.isoformat() if self.last_irrigation else None
-        settings.save(self._p("state.json"), {"last_irrigation": li})
+        steer = {**self.steer, "last_shot": self.steer["last_shot"].isoformat() if self.steer.get("last_shot") else None}
+        settings.save(self._p("state.json"), {"last_irrigation": li, "steer": steer})
 
     def _load_history(self):
         cutoff = datetime.now() - timedelta(days=7)
         for path in sorted(glob.glob(self._p("log-*.csv")))[-12:]:
             try:
                 with open(path, newline="") as f:
-                    for r in csv.DictReader(f):
+                    rd = csv.DictReader(f)
+                    self._soil_cols = [k for k in rd.fieldnames or [] if "soil" in k]  # Spalten der neuesten Datei weiterführen
+                    for r in rd:
                         row = self._parse_row(r)
                         if row and datetime.fromisoformat(row["t"]) >= cutoff:
                             self.minutes.append(row)
@@ -145,6 +158,8 @@ class Controller:
     def event(self, kind, msg):
         e = {"t": datetime.now().isoformat(timespec="seconds"), "kind": kind, "msg": msg}
         self.events.append(e)
+        if kind == "alarm":  # aufs Handy (falls eingerichtet); "Behoben: …" mit normaler Priorität
+            self.notifier.send("Growcontroller", msg, "default" if msg.startswith("Behoben") else "high")
         try:
             with open(self._p("events.jsonl"), "a") as f:
                 f.write(json.dumps(e, ensure_ascii=False) + "\n")
@@ -159,7 +174,7 @@ class Controller:
 
     # --- Messen ---
     def read_sensors(self):
-        merged, main, mono = {}, False, time.monotonic()
+        merged, main, mono, own = {}, False, time.monotonic(), {}
         for name, (prefix, s) in self.sensors.items():
             try:
                 t_off, h_off = self._offsets.get(name, (0.0, 0.0))
@@ -169,7 +184,8 @@ class Controller:
                     v = float(v) + (t_off if k == "temp" else h_off if k == "hum" else 0.0)
                     if k == "hum":
                         v = min(100.0, max(0.0, v))
-                    merged[prefix + k] = v if k.endswith("seq") else round(v, 1 if k in ("temp", "hum") else 2)
+                    v = v if k.endswith("seq") else round(v, 1 if k in ("temp", "hum") else 2)
+                    merged[prefix + k] = own.setdefault(name, {})[k] = v
                     main = main or (not prefix and k in ("temp", "hum"))
                 self._sensor_ok[name] = mono
             except Exception as e:  # Sensorfehler dürfen die Regelung nicht beenden
@@ -177,6 +193,7 @@ class Controller:
                 if now - self._warned.get(name, -1e9) > 60:  # höchstens 1x pro Minute ins Log
                     self._warned[name] = now
                     log.warning("Sensor %s: %s", name, e)
+        main = self._fallback(merged, own, main, mono)
         self.fresh = merged
         self.readings.update(merged)
         for k in merged:
@@ -187,6 +204,20 @@ class Controller:
             self._rt.pop(k)
         if main:  # nur der Regel-Sensor zählt für "Sensordaten aktuell"
             self.last_ok = mono
+
+    def _fallback(self, merged, own, main, mono):
+        """Ersatzsensor ("fallback": true): liefert der Haupt-Sensor länger als FALLBACK_S keine Werte,
+        regelt temp/hum eines Zusatz-Sensors (z. B. GGS-Klimasensor im selben Zelt). Gibt zurück, ob Hauptwerte da sind."""
+        use = None
+        if not main and time.time() - self.started > FALLBACK_S and (self.last_ok is None or mono - self.last_ok > FALLBACK_S):
+            use = next((n for n in self._fallbacks if "temp" in own.get(n, {}) and "hum" in own.get(n, {})), None)
+        if use:
+            merged["temp"], merged["hum"] = own[use]["temp"], own[use]["hum"]
+        if use != self.fallback:
+            label = self.sensor_labels.get(use or self.fallback)
+            self.event("system", f"Ersatzsensor {label} regelt (Hauptsensor ausgefallen)" if use else f"Hauptsensor wieder aktiv – Ersatzsensor {label} aus")
+            self.fallback = use
+        return main or bool(use)
 
     def stale(self):
         return self.last_ok is None or time.monotonic() - self.last_ok > self.cfg.get("sensor_timeout_s", 120)
@@ -645,16 +676,32 @@ class Controller:
         mono = time.monotonic()
         if mono < self.pump_until:
             return True
+        sc = self.cfg["steering"]
+        if sc["enabled"]:  # Crop Steering ersetzt die Intervall-Bewässerung
+            m = self.readings.get(sc["sensor"]) if sc["sensor"] else None
+            day = self.steer.get("day")
+            fire, phase, why = rules.steering(sc, self.cfg["light"], now, m, self.steer)
+            self.steer_info = {"phase": phase, "why": why, "moisture": m}
+            if fire:
+                self.steer["shots"] = self.steer.get("shots", 0) + 1
+                self.steer["last_shot"] = now
+                self._start_pump(now, sc["shot_s"], f"Crop Steering {phase}: Schuss {self.steer['shots']} ({sc['shot_s']} s) bei {m} %")
+                return True
+            if self.steer.get("day") != day:
+                self._save_state()  # neuer Tag (Dryback) sichern
+            return False
+        self.steer_info = None
         if rules.irrigation_due(self.cfg["irrigation"], self.last_irrigation, now):
             self._start_pump(now)
             return True
         return False
 
-    def _start_pump(self, now):
-        self.pump_until = time.monotonic() + self.cfg["irrigation"]["duration_s"]
+    def _start_pump(self, now, seconds=None, msg=None):
+        seconds = seconds or self.cfg["irrigation"]["duration_s"]
+        self.pump_until = time.monotonic() + seconds
         self.last_irrigation = now
         self._save_state()
-        self.event("irrigation", f"Bewässerung gestartet ({self.cfg['irrigation']['duration_s']} s)")
+        self.event("irrigation", msg or f"Bewässerung gestartet ({seconds} s)")
 
     def water_now(self):
         o = self._pump_out()
@@ -676,6 +723,8 @@ class Controller:
             conds["hum_high"] = (h is not None and h > a["hum_max"], f"Luftfeuchte {h} % über {a['hum_max']} %", delay)
             conds["hum_low"] = (h is not None and h < a["hum_min"], f"Luftfeuchte {h} % unter {a['hum_min']} %", delay)
         conds["sensor_stale"] = (self.stale(), ALARM_TEXT["sensor_stale"], 60)
+        conds["sensor_fallback"] = (self.fallback is not None,
+                                    f"Hauptsensor ausgefallen – Ersatzsensor {self.sensor_labels.get(self.fallback)} regelt", 0)
         mono_now = time.monotonic()
         for name, (prefix, _s) in self.sensors.items():
             if prefix:  # Zusatz-Sensoren (Raum, Leistungsmessung); der Regel-Sensor hat den Alarm oben
@@ -707,8 +756,15 @@ class Controller:
             self.minutes.append(row)
             self._append_csv(now, row)
 
+    def _cols(self):
+        """CSV-Spalten: feste Klima-Werte, Bodenwerte (soil…, wachsen nur – sonst entstünde ständig eine neue Datei), Geräte."""
+        for k in sorted(self.readings):
+            if "soil" in k and k not in self._soil_cols:
+                self._soil_cols.append(k)
+        return ["t", "temp", "hum", "vpd", "room_temp", "room_hum", "exhaust_w"] + self._soil_cols + list(self.outs)
+
     def _append_csv(self, now, row):
-        fields = ["t", "temp", "hum", "vpd", "room_temp", "room_hum", "exhaust_w"] + list(self.outs)
+        fields = self._cols()
         try:
             # Ändert sich die Spaltenliste (Geräte/Sensoren), in eine neue Datei mit passender Kopfzeile schreiben
             for suffix in [""] + [f"-{c}" for c in "bcdefghijklmnopqrstuvwxyz"]:
@@ -766,7 +822,7 @@ class Controller:
         import io
         with self.lock:
             rows = self._rows(rng)
-        cols = ["t", "temp", "hum", "vpd", "room_temp", "room_hum", "exhaust_w"] + list(self.outs)
+        cols = self._cols()
         buf = io.StringIO()
         w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
         w.writeheader()
@@ -821,7 +877,13 @@ class Controller:
                                "next": nxt and nxt.isoformat(timespec="minutes"), "available": bool(pump),
                                "enabled": ir["enabled"], "pump_mode": pump.mode if pump else None,
                                "running": time.monotonic() < self.pump_until},
-                "sensors": {n: {"prefix": p, "label": self.sensor_labels[n]} for n, (p, _s) in self.sensors.items()},
+                "sensors": {n: {"prefix": p, "label": self.sensor_labels.get(n, n)} for n, (p, _s) in self.sensors.items()},
+                "fallback": self.fallback and self.sensor_labels.get(self.fallback),
+                "steering": self.steer_info and {**self.steer_info, "shots": self.steer.get("shots", 0),
+                                                 "reached": self.steer.get("reached", False), "dryback": self.steer.get("dryback"),
+                                                 "morning": self.steer.get("morning"),
+                                                 "last_shot": self.steer["last_shot"].isoformat(timespec="minutes") if self.steer.get("last_shot") else None},
+                "notify": {"channels": self.notifier.channels(), "error": self.notifier.error, "sent": self.notifier.count},
                 "outputs": {n: {"state": o.state, "mode": o.mode, "role": o.role,
                                 "ok": getattr(o.backend, "healthy", True), "info": o.info,
                                 "proportional": o.proportional, "angle": o.angle, "watts": o.watts,

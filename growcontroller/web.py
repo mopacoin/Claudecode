@@ -115,6 +115,12 @@ def make_handler(ctl, token):
                 except ValueError as e:
                     return self._send(400, {"error": str(e)})
                 return self._send(200, ctl.status())
+            if len(parts) == 3 and parts[:2] == ["api", "ggs"]:
+                try:
+                    ctl.ggs_mode(parts[2], body)
+                    return self._send(200, ctl.status())
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
             if len(parts) == 3 and parts[:2] == ["api", "output"]:
                 try:
                     ctl.set_mode(parts[2], body["mode"])

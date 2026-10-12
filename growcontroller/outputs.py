@@ -49,16 +49,20 @@ class Output:
         self.state = False
         self.changed = time.monotonic() - min_switch_s
         self._max_hit = False  # Laufzeitbegrenzung ausgelöst -> erst nach "aus" wieder freigeben
-        self.manual = self.role == MANUAL
         self._cmd = None
         self.known = not self.manual  # manual: erst bekannt, wenn das Gerät meldet oder von Hand geschaltet wurde
         if not proportional and not self.manual:
             backend.set(False)
 
+    @property
+    def manual(self):
+        return self.role == MANUAL  # Rolle kann zur Laufzeit wechseln (GGS-Steckdose: Modus "Growcontroller")
+
     def apply(self, want):
         """want = Sollzustand der Automatik für diese Rolle; Modus kann überschreiben."""
         if self.manual:
             return self._apply_manual()
+        self.known = True
         if self.mode in ("on", "off"):
             want = self.mode == "on"
         now = time.monotonic()

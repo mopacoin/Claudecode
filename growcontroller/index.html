@@ -544,7 +544,67 @@ function stateText(o) {
   if (il && o.mode === 'auto') return `<span style="color:var(--warn)">${il.assist ? 'hilft ' + dev[il.dev] : 'gekoppelt: ' + dev[il.dev] + ' läuft'}</span>`;
   return o.watts <= CFG.values.exhaust.min_w + 0.5 ? 'Grundlast' : (S.is_day ? o.watts >= CFG.values.exhaust.max_w - 0.5 : o.watts >= CFG.values.exhaust.max_w_night - 0.5) ? 'Maximum' : 'Regelt';
 }
+// --- Spider Farmer GGS: Steckdosen-Modi (Manuell, Zeitfenster, Zyklus, Tropfbewässerung, Growcontroller) ---
+const GGS_OPEN = {};   // Steckdose -> Entwurf, solange das Formular offen ist (dann wird die Geräteansicht nicht neu gezeichnet)
+const GGS_MODES = [['manual', 'Manuell'], ['time', 'Zeitfenster'], ['cycle', 'Zyklus'], ['drip', 'Tropfbewässerung'], ['grow', 'Growcontroller']];
+const hhmm = s => s == null ? '' : `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s % 3600 / 60)).padStart(2, '0')}`;
+function ggsCur(o) {
+  if (o.role !== 'manual') return 'grow';
+  return {0: 'manual', 1: 'time', 2: 'cycle', 14: 'drip'}[o.ggs?.cfg?.modeType ?? 0] || 'other';
+}
+function ggsSummary(o) {
+  const c = o.ggs?.cfg || {}, cur = ggsCur(o), ct = c.cycleTime || {}, w = (c.wateringEnv?.period || [{}])[0];
+  const probe = id => id ? (o.ggs.probes.find(p => p.id === id)?.label || id) : 'Mittelwert';
+  if (!o.ggs?.cfg && cur !== 'grow') return 'Konfiguration wird gelesen …';
+  return {
+    grow: `Growcontroller regelt – Rolle <b>${esc(LABEL[o.role] || o.role)}</b>`,
+    manual: `Manuell – ${o.mode === 'auto' ? 'frei (wird nicht angefasst)' : o.mode === 'on' ? 'Ein' : 'Aus'}`,
+    time: 'Zeitfenster: ' + (c.timePeriod || []).filter(p => p.enabled).map(p => `${hhmm(p.startTime)}–${hhmm(p.endTime)}`).join(', '),
+    cycle: `Zyklus ab ${hhmm(ct.startTime)}: ${Math.round(ct.openDur / 60 * 10) / 10} min an / ${Math.round(ct.closeDur / 60 * 10) / 10} min aus × ${ct.times}`,
+    drip: `Tropfbewässerung ${hhmm(w.startTime)}–${hhmm(w.endTime)}: ${w.openDur} s an / ${w.closeDur} s Pause, gießt unter ${w.dry} % bis ${w.target} % (${esc(probe(c.bind?.id))})`,
+    other: `In der App eingestellter Modus (${c.modeType}) – hier nicht bearbeitbar`,
+  }[cur];
+}
+function ggsDraft(o) {
+  const c = o.ggs?.cfg || {}, ct = c.cycleTime || {}, w = (c.wateringEnv?.period || [{}])[0], cur = ggsCur(o);
+  const tp = (c.timePeriod || []).filter(p => p.enabled).map(p => ({start: hhmm(p.startTime), end: hhmm(p.endTime)}));
+  return {mode: cur === 'other' ? 'manual' : cur, role: o.role !== 'manual' ? o.role : 'fan', periods: tp.length ? tp : [{start: '06:00', end: '18:00'}],
+    c_start: hhmm(ct.startTime) || '06:00', c_on: ct.openDur ? ct.openDur / 60 : 15, c_off: ct.closeDur ? ct.closeDur / 60 : 45, c_times: ct.times || 10,
+    d_start: hhmm(w.startTime) || '08:00', d_end: hhmm(w.endTime) || '20:00', d_on: w.openDur || 15, d_off: w.closeDur || 600,
+    d_dry: w.dry ?? 60, d_target: w.target ?? 80, d_sensor: c.bind?.id || ''};
+}
+function ggsForm(n, o) {
+  const d = GGS_OPEN[n], direct = o.ggs?.psmode === 0;
+  const f = (k, label, v, type = 'number', unit = '', extra = '') => `<div class="fld"><label>${label}</label><div class="ig"><input data-k="${k}" type="${type}" value="${esc(String(v))}" ${extra}>${unit ? `<span>${unit}</span>` : ''}</div></div>`;
+  const modes = GGS_MODES.filter(([m]) => !direct || m === 'manual' || m === 'grow');
+  let body = '';
+  if (d.mode === 'manual') body = `<div class="sub" style="margin-top:6px">Ein/Aus über die Knöpfe unten.</div>`;
+  if (d.mode === 'grow') body = `<div class="fld"><label>Rolle in der Regel-Logik</label><div class="ig"><select data-k="role">${Object.keys(ROLE_ICO).map(r => `<option value="${r}" ${d.role === r ? 'selected' : ''}>${esc(LABEL[r] || r)}</option>`).join('')}</select></div></div>`;
+  if (d.mode === 'time') body = d.periods.map((p, i) => `<div class="row" style="gap:8px;align-items:flex-end">${f('p' + i + 's', 'Fenster ' + (i + 1) + ' von', p.start, 'time')}${f('p' + i + 'e', 'bis', p.end, 'time')}
+      <button data-ga="delp" data-i="${i}" ${d.periods.length < 2 ? 'disabled' : ''} style="margin-bottom:10px">✕</button></div>`).join('')
+    + (d.periods.length < 5 ? `<button data-ga="addp">+ Zeitfenster</button>` : '');
+  if (d.mode === 'cycle') body = `<div class="fgrid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">${f('c_start', 'Start', d.c_start, 'time')}${f('c_on', 'An', d.c_on, 'number', 'min', 'min="0.1" step="0.1"')}${f('c_off', 'Aus', d.c_off, 'number', 'min', 'min="0.1" step="0.1"')}${f('c_times', 'Wiederholungen', d.c_times, 'number', '', 'min="1" max="999"')}</div>`;
+  if (d.mode === 'drip') body = `<div class="fgrid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">${f('d_start', 'Von', d.d_start, 'time')}${f('d_end', 'Bis', d.d_end, 'time')}
+      ${f('d_on', 'Pumpe an', d.d_on, 'number', 's', 'min="1"')}${f('d_off', 'Pause', d.d_off, 'number', 's', 'min="1"')}${f('d_dry', 'Gießen unter', d.d_dry, 'number', '%', 'min="0" max="100"')}${f('d_target', 'bis', d.d_target, 'number', '%', 'min="0" max="100"')}</div>
+    <div class="fld"><label>Bodensonde</label><div class="ig"><select data-k="d_sensor"><option value="">Mittelwert aller Sonden</option>${(o.ggs?.probes || []).map(p => `<option value="${esc(p.id)}" ${d.d_sensor === p.id ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}</select></div></div>`;
+  return `<div class="ggsform" data-n="${esc(n)}" style="margin-top:10px">
+    <div class="fld"><label>Modus</label><div class="ig"><select data-k="mode">${modes.map(([m, l]) => `<option value="${m}" ${d.mode === m ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    ${body}
+    <div class="row" style="gap:8px;margin-top:10px">${d.mode === 'manual' ? `<button data-ga="on">Ein</button><button data-ga="off">Aus</button>` : `<button class="pri" data-ga="apply">Übernehmen</button>`}<button data-ga="cancel">Abbrechen</button></div></div>`;
+}
+function ggsBody(n) {
+  const d = GGS_OPEN[n], t = s => s || '00:00';
+  if (d.mode === 'grow') return {mode: 'grow', role: d.role};
+  if (d.mode === 'time') return {mode: 'time', periods: d.periods.map(p => ({start: t(p.start), end: t(p.end)}))};
+  if (d.mode === 'cycle') return {mode: 'cycle', start: t(d.c_start), on_s: Math.round(+d.c_on * 60), off_s: Math.round(+d.c_off * 60), times: +d.c_times};
+  return {mode: 'drip', start: t(d.d_start), end: t(d.d_end), on_s: +d.d_on, off_s: +d.d_off, dry: +d.d_dry, target: +d.d_target, sensor: d.d_sensor};
+}
+async function ggsSend(n, body) {
+  try { S = await api('/api/ggs/' + encodeURIComponent(n), body); delete GGS_OPEN[n]; renderAll(); toast('Übernommen'); }
+  catch (e) { toast(e.data?.error || e.message, 1); }
+}
 function renderDevices() {
+  if (Object.keys(GGS_OPEN).length) return;  // GGS-Formular offen: Eingaben nicht überschreiben
   $('#devices').innerHTML = Object.entries(S.outputs).map(([n, o]) => {
     const info = infoText(o), bad = o.ok === false;
     return `<div class="card dev ${o.state ? 'on' : ''} ${bad ? 'err' : ''}"><div class="hd"><div class="ib">${ico(ROLE_ICO[o.role] || 'plug')}</div>
@@ -552,7 +612,10 @@ function renderDevices() {
       ${o.proportional && o.watts != null ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${Math.round(o.watts)} W</b><span class="sub">${o.angle}° Servo · ${Math.round(exShare(o.watts) * 100)} % Leistung${S.exhaust?.measured_w != null ? ` · gemessen ${S.exhaust.measured_w.toFixed(1)} W` : ''}</span></div>
         <div class="lvl"><i style="width:${exShare(o.watts) * 100}%"></i></div>` : ''}
       <div class="info">${esc(info)}</div>
-      <div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${(o.proportional ? {auto: 'Auto', on: 'Maximum', off: 'Grundlast'} : {auto: o.role === 'manual' ? 'Frei' : 'Auto', on: 'Ein', off: 'Aus'})[m]}</button>`).join('')}</div></div>`;
+      ${o.ggs ? `<div class="sub" style="margin:8px 0">${ggsSummary(o)}</div>
+        <div class="row ggsq" style="gap:8px">${o.role === 'manual' ? `<button data-gq="on" data-n="${esc(n)}" class="${o.mode === 'on' ? 'pri' : ''}">Ein</button><button data-gq="off" data-n="${esc(n)}" class="${o.mode === 'off' ? 'pri' : ''}">Aus</button>` : ''}
+        <button data-gq="edit" data-n="${esc(n)}">Modus …</button></div>` : `<div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${(o.proportional ? {auto: 'Auto', on: 'Maximum', off: 'Grundlast'} : {auto: o.role === 'manual' ? 'Frei' : 'Auto', on: 'Ein', off: 'Aus'})[m]}</button>`).join('')}</div>`}
+      ${o.ggs && o.role !== 'manual' ? `<div class="seg" style="margin-top:8px">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${{auto: 'Auto', on: 'Ein', off: 'Aus'}[m]}</button>`).join('')}</div>` : ''}</div>`;
   }).join('');
   renderCal();
   const i = S.irrigation, f = t => t ? t.replace('T', ' ').slice(5, 16) : '–';
@@ -563,9 +626,35 @@ function renderDevices() {
     try { S = await api('/api/irrigation/run', {}); renderAll(); toast('Bewässerung gestartet'); } catch (e) { toast(e.data?.error || e.message, 1); } };
 }
 $('#devices').onclick = async e => {
+  const q = e.target.closest('button[data-gq]');  // GGS-Steckdose: Schnellknöpfe / Formular öffnen
+  if (q) {
+    const n = q.dataset.n, o = S.outputs[n];
+    if (q.dataset.gq === 'edit') {
+      GGS_OPEN[n] = ggsDraft(o);
+      const row = q.closest('.ggsq'); row.insertAdjacentHTML('afterend', ggsForm(n, o)); row.remove();
+    } else ggsSend(n, {mode: 'manual', on: q.dataset.gq === 'on' ? 1 : 0});
+    return;
+  }
+  const g = e.target.closest('.ggsform button[data-ga]');  // im offenen GGS-Formular
+  if (g) {
+    const form = g.closest('.ggsform'), n = form.dataset.n, d = GGS_OPEN[n], a = g.dataset.ga;
+    if (a === 'cancel') { delete GGS_OPEN[n]; renderAll(); return; }
+    if (a === 'on' || a === 'off') return ggsSend(n, {mode: 'manual', on: a === 'on' ? 1 : 0});
+    if (a === 'apply') return ggsSend(n, ggsBody(n));
+    if (a === 'addp') d.periods.push({start: '06:00', end: '18:00'});
+    if (a === 'delp') d.periods.splice(+g.dataset.i, 1);
+    form.outerHTML = ggsForm(n, S.outputs[n]);
+    return;
+  }
   const b = e.target.closest('button[data-m]'); if (!b) return;
   try { S = await api('/api/output/' + encodeURIComponent(b.dataset.n), {mode: b.dataset.m}); renderAll(); } catch (er) { toast(er.message, 1); }
 };
+$('#devices').addEventListener('input', e => {  // Eingaben im GGS-Formular in den Entwurf übernehmen
+  const form = e.target.closest('.ggsform'), k = e.target.dataset.k; if (!form || !k) return;
+  const n = form.dataset.n, d = GGS_OPEN[n], m = /^p(\d)([se])$/.exec(k);
+  if (m) d.periods[+m[1]][m[2] === 's' ? 'start' : 'end'] = e.target.value; else d[k] = e.target.value;
+  if (k === 'mode') form.outerHTML = ggsForm(n, S.outputs[n]);
+});
 
 // ---- Abluft-Kalibrierung ----
 let calBuilt = '';

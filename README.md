@@ -97,7 +97,16 @@ Protokoll dort beschrieben; Paket `cryptography`). Sie geht direkt über einen L
 Gerät hängen bleibt – der Dienst muss dafür als root laufen. Solange der Pi verbunden ist, kann sich die Spider-Farmer-App nicht per
 Bluetooth verbinden. Ein Ausgang vom Typ `spiderfarmer` schreibt nur, wenn der gemeldete Zustand abweicht; je nach Leistenmodus
 (`psmode`) schaltet er direkt (`setOutlet`, psmode 0) oder stellt die Steckdose in der Konfiguration auf **manuell** (psmode 1 –
-die Automatik des GGS für diese Steckdose ist dann aus). Ein Konto ist nicht nötig, auch ein GGS ohne Sensoren funktioniert. Getestet mit Firmware 3.2 (Hardware S-ZC5-V2.5);
+die Automatik des GGS für diese Steckdose ist dann aus). Ein Konto ist nicht nötig, auch ein GGS ohne Sensoren funktioniert.
+**Modi je Steckdose** (Geräte → „Modus …“): **Manuell** (Ein/Aus), **Zeitfenster** (bis 5 Fenster), **Zyklus** (Start, an/aus,
+Wiederholungen), **Tropfbewässerung** (Zeitraum, Pumpstoß/Pause, gießt unter „trocken“ bis „Ziel“ %, Bodensonde oder Mittelwert) –
+diese regelt der GGS selbst – oder **Growcontroller** (Rolle wählen, z. B. Befeuchter; dann schaltet die Regel-Logik). Achtung:
+`setConfigField` ersetzt die ganze Konfiguration einer Steckdose, deshalb liest growcontroller sie und schreibt sie zusammengeführt
+zurück. Zeitfenster/Zyklus/Bewässerung gehen nur bei Leisten in `psmode` 1. Rolle und Modus stehen in `data/settings.json`.
+API: `POST /api/ggs/<ausgang>` mit `{"mode":"manual","on":1}`, `{"mode":"time","periods":[{"start":"06:00","end":"18:00"}]}`,
+`{"mode":"cycle","start":"04:00","on_s":420,"off_s":1320,"times":13}`,
+`{"mode":"drip","start":"08:00","end":"20:00","on_s":95,"off_s":600,"dry":90,"target":95,"sensor":"<Sonden-ID oder leer>"}`
+oder `{"mode":"grow","role":"humidifier"}`. Getestet mit Firmware 3.2 (Hardware S-ZC5-V2.5);
 neuere Firmware verschlüsselt anders.
 ```json
 "sensors": { "ggs": { "driver": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "uid": "123456", "prefix": "ggs_" } },

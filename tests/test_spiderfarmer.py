@@ -49,6 +49,8 @@ class Fake:
 
     def __init__(self, mac):
         self.written, self.rx = [], queue.Queue()
+        self.cfg = {"outlet": {"O5": {"modeType": 0, "mOnOff": 1, "wateringEnv": {"period": [{"enabled": 1, "dry": 50}]}}},
+                    "device": {"senConfig": [{"id": "AA01", "label": "lit"}]}}
         Fake.inst = self
         self.push(dev_sta(1, self.psmode))
 
@@ -65,8 +67,13 @@ class Fake:
     def write(self, frame):
         self.written.append(frame)
         req = json.loads(sf.decrypt(frame[20:-2]))
-        if req["method"] == "setConfigField" and self.psmode == 1:
-            self.push(dev_sta(req["params"]["O5"]["mOnOff"], 1))
+        if req["method"] == "getConfigFile":
+            self.push({"method": "getConfigFile", "code": 200, "data": {"configFile": json.loads(json.dumps(self.cfg))}})
+        if req["method"] == "setConfigField":
+            key = req["params"]["keyPath"][1]
+            self.cfg["outlet"][key] = req["params"][key]          # ersetzt die ganze Steckdosen-Konfiguration
+            if self.psmode == 1 and key == "O5" and req["params"][key].get("modeType") == 0:
+                self.push(dev_sta(req["params"]["O5"]["mOnOff"], 1))
         if req["method"] == "setOutlet" and self.psmode == 0 and req["params"]["num"] == 5:
             self.push(dev_sta(req["params"]["on"], 0))
 
@@ -147,6 +154,25 @@ class TestLink(unittest.TestCase):
         self.assertEqual(len(cfg), 1)
         self.assertEqual(cfg[0]["uid"], "155855")
 
+    def test_manual_switch_keeps_other_settings(self):
+        link = sf.GGSLink.get("80:F1:B2:B1:C7:F2", uid="155855")
+        self.wait_data(link)
+        link.set_outlet(5, False)
+        self.assertEqual(Fake.inst.cfg["outlet"]["O5"],
+                         {"modeType": 0, "mOnOff": 0, "wateringEnv": {"period": [{"enabled": 1, "dry": 50}]}})
+
+    def test_write_mode_and_probes(self):
+        link = sf.GGSLink.get("80:F1:B2:B1:C7:F2", uid="155855")
+        self.wait_data(link)
+        for _ in range(100):
+            if link.config: break
+            time.sleep(0.05)
+        self.assertEqual(link.probes(), [("AA01", "lit")])
+        cfg = sf.mode_config(link.outlet_config(5), "cycle", {"start": "04:00", "on_s": 420, "off_s": 1320, "times": 13})
+        link.write_outlet(5, cfg)
+        self.assertEqual(Fake.inst.cfg["outlet"]["O5"]["modeType"], 2)
+        self.assertEqual(link.outlet_config(5)["cycleTime"]["openDur"], 420)
+
     def test_psmode_0_uses_set_outlet(self):
         Fake.psmode = 0
         try:
@@ -178,6 +204,42 @@ class TestLink(unittest.TestCase):
         time.sleep(0.01)
         with self.assertRaises(RuntimeError):
             s.read()
+
+
+class TestModeConfig(unittest.TestCase):
+    """Formate wie live an GGS 1 (Firmware 3.2) ausgelesen."""
+    BASE = {"modeType": 0, "mOnOff": 1, "tempAdd": 1, "timePeriod": [{"weekmask": 127}] * 5,
+            "bind": {"bindType": 1, "id": "X"}}
+
+    def test_time_slots(self):
+        c = sf.mode_config(self.BASE, "time", {"periods": [{"start": "00:00", "end": "00:44"}, {"start": "20:00", "end": "23:00"}]})
+        self.assertEqual(c["modeType"], 1)
+        self.assertEqual(c["timePeriod"][:2], [{"enabled": 1, "weekmask": 127, "startTime": 0, "endTime": 2640},
+                                               {"enabled": 1, "weekmask": 127, "startTime": 72000, "endTime": 82800}])
+        self.assertEqual(c["timePeriod"][2:], [{"weekmask": 127}] * 3)
+        self.assertEqual((c["tempAdd"], c["mOnOff"]), (1, 1))      # übrige Einstellungen bleiben
+
+    def test_cycle(self):
+        c = sf.mode_config(self.BASE, "cycle", {"start": "04:00", "on_s": 420, "off_s": 1320, "times": 13})
+        self.assertEqual(c["cycleTime"], {"weekmask": 127, "startTime": 14400, "openDur": 420, "closeDur": 1320, "times": 13})
+        self.assertEqual(c["modeType"], 2)
+
+    def test_drip_with_probe_and_average(self):
+        p = {"start": "08:00", "end": "20:00", "on_s": 95, "off_s": 600, "dry": 90, "target": 95, "sensor": "383532380630A775"}
+        c = sf.mode_config(self.BASE, "drip", p)
+        self.assertEqual(c["modeType"], 14)
+        self.assertEqual(c["wateringEnv"]["period"][0], {"enabled": 1, "startTime": 28800, "endTime": 72000, "openDur": 95,
+                                                         "closeDur": 600, "target": 95, "dry": 90, "tmn": 1})
+        self.assertEqual(c["bind"], {"bindType": 1, "id": "383532380630A775"})
+        self.assertNotIn("bind", sf.mode_config(self.BASE, "drip", {**p, "sensor": ""}))   # Mittelwert
+
+    def test_invalid_input(self):
+        for mode, p in (("time", {"periods": []}), ("time", {"periods": [{"start": "25:00", "end": "01:00"}]}),
+                        ("cycle", {"start": "04:00", "on_s": 0, "off_s": 10, "times": 1}),
+                        ("drip", {"start": "08:00", "end": "20:00", "on_s": 5, "off_s": 5, "dry": 90, "target": 80}),
+                        ("temp", {})):
+            with self.assertRaises((ValueError, KeyError)):
+                sf.mode_config(self.BASE, mode, p)
 
 
 class Reported:
@@ -224,6 +286,65 @@ class TestSensorLabels(unittest.TestCase):
             st = ctl.status()["sensors"]
             self.assertEqual(st["ggs2"], {"prefix": "ggs2_", "label": "GGS 2"})
             self.assertEqual(st["air"], {"prefix": "", "label": "air"})   # ohne label: Name
+
+
+class StubLink:
+    def __init__(self, psmode=1):
+        self.ps, self.cfg, self.written = psmode, {"modeType": 0, "mOnOff": 1}, []
+    def psmode(self): return self.ps
+    def outlet_config(self, n): return dict(self.cfg)
+    def probes(self): return [("AA01", "lit")]
+    def outlet(self, n): return True
+    def write_outlet(self, n, cfg): self.written.append((n, cfg)); self.cfg = cfg
+
+
+class StubBackend:
+    def __init__(self, link):
+        self.link, self.outlet, self.calls = link, 5, []
+    def set(self, on): self.calls.append(on)
+    def actual(self): return True
+    def close(self): pass
+
+
+class TestGgsMode(unittest.TestCase):
+    def make(self, tmp, link):
+        from growcontroller import controller
+        ctl = controller.Controller({"interval_s": 5, "sensors": {"air": {"driver": "sim"}}, "outputs": {},
+                                     "light": {"on": "06:00", "off": "00:00"}, "climate": {}, "irrigation": {}}, tmp)
+        ctl.outs["ggs_o5"] = outputs.Output("ggs_o5", StubBackend(link), role="manual", info={"type": "spiderfarmer"})
+        ctl._prev_state["ggs_o5"] = None
+        return ctl
+
+    def test_modes_roles_and_persistence(self):
+        import tempfile
+        from growcontroller import controller
+        with tempfile.TemporaryDirectory() as tmp:
+            link = StubLink()
+            ctl = self.make(tmp, link)
+            ctl.ggs_mode("ggs_o5", {"mode": "drip", "start": "08:00", "end": "20:00", "on_s": 95, "off_s": 600,
+                                    "dry": 90, "target": 95, "sensor": "AA01"})
+            self.assertEqual(link.written[-1][1]["modeType"], 14)
+            self.assertEqual((ctl.outs["ggs_o5"].role, ctl.outs["ggs_o5"].mode), ("manual", "auto"))
+            st = ctl.status()["outputs"]["ggs_o5"]["ggs"]
+            self.assertEqual((st["cfg"]["modeType"], st["probes"]), (14, [{"id": "AA01", "label": "lit"}]))
+            ctl.ggs_mode("ggs_o5", {"mode": "grow", "role": "humidifier"})
+            self.assertEqual((ctl.outs["ggs_o5"].role, ctl.outs["ggs_o5"].mode), ("humidifier", "auto"))
+            with self.assertRaises(ValueError):
+                ctl.ggs_mode("ggs_o5", {"mode": "grow", "role": "kaffee"})
+            # nach Neustart: Rolle aus settings.json
+            cfg = {"interval_s": 5, "sensors": {"air": {"driver": "sim"}}, "light": {"on": "06:00", "off": "00:00"},
+                   "climate": {}, "irrigation": {}, "outputs": {"ggs_o5": {"type": "sim_none"}}}
+            again = controller.Controller({**cfg, "outputs": {}}, tmp)
+            self.assertEqual(again.saved["roles"]["ggs_o5"], "humidifier")
+
+    def test_psmode_0_only_manual_and_grow(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            ctl = self.make(tmp, StubLink(psmode=0))
+            with self.assertRaises(ValueError):
+                ctl.ggs_mode("ggs_o5", {"mode": "cycle", "start": "04:00", "on_s": 60, "off_s": 60, "times": 1})
+            ctl.ggs_mode("ggs_o5", {"mode": "manual", "on": 0})
+            self.assertEqual(ctl.outs["ggs_o5"].mode, "off")
 
 
 class TestManualEvents(unittest.TestCase):

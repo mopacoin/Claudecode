@@ -25,6 +25,7 @@ EFF_BIN = 5           # Watt je Wirksamkeits-Fach
 EFF_WIN = 10          # so viele Minuten muss alles ruhig sein, bevor ein Wirksamkeits-Punkt zählt
 EFF_LIGHT_MIN = 30    # nach Licht an/aus so lange warten (Lampenwärme/Verdunstung schwingen erst ein)
 DEV_ROLES = ("dehumidifier", "humidifier", "heater")
+GGS_ROLES = ("light", "fan", "heater", "humidifier", "dehumidifier", "pump", "vent", "intake")  # Modus "Growcontroller"
 DEV_POWER = {"dehumidifier": 250, "humidifier": 30, "heater": 300}   # Annahme, wenn "power_w" nicht in config.json steht
 DEV_SETTLE_MIN = 3    # Wirkung erst ab Minute 3 nach dem Einschalten messen
 DEV_ON_MIN = 15       # spätestens nach so vielen Minuten Laufzeit auswerten
@@ -58,6 +59,9 @@ class Controller:
         self.exhaust_notes = []
         self._on_since = {}  # Rolle -> seit wann an (monotonic), für Entfeuchter-Stufe 2
         self.gpio, self.outs, self.hubs = outputs.create_all(cfg)
+        for n, r in self.saved.get("roles", {}).items():  # GGS-Steckdosen: im Dashboard gewählte Rolle
+            if n in self.outs and self.outs[n].info.get("type") == "spiderfarmer" and r in GGS_ROLES + (outputs.MANUAL,):
+                self.outs[n].role = r
         self.has_dehum = any(o.role == "dehumidifier" for o in self.outs.values())
         for n, m in self.saved.get("modes", {}).items():
             if n in self.outs and m in ("auto", "on", "off"):
@@ -820,7 +824,8 @@ class Controller:
                 "sensors": {n: {"prefix": p, "label": self.sensor_labels[n]} for n, (p, _s) in self.sensors.items()},
                 "outputs": {n: {"state": o.state, "mode": o.mode, "role": o.role,
                                 "ok": getattr(o.backend, "healthy", True), "info": o.info,
-                                "proportional": o.proportional, "angle": o.angle, "watts": o.watts} for n, o in self.outs.items()},
+                                "proportional": o.proportional, "angle": o.angle, "watts": o.watts,
+                                "ggs": self._ggs_info(o)} for n, o in self.outs.items()},
             }
 
     def get_settings(self):
@@ -945,6 +950,54 @@ class Controller:
             settings.save(self._p("settings.json"), self.saved)
             self.rev += 1
             self.event("mode", f"{name}: Modus {mode}")
+
+    def ggs_mode(self, name, body):
+        """Modus einer Spider-Farmer-Steckdose: manual (Ein/Aus), time/cycle/drip (regelt der GGS selbst)
+        oder grow (growcontroller regelt mit der gewählten Rolle). Wirft ValueError mit lesbarem Text."""
+        from . import spiderfarmer
+        o = self.outs.get(name)
+        if not o or o.info.get("type") != "spiderfarmer" or not hasattr(o.backend, "link"):
+            raise ValueError("Keine (erreichbare) Spider-Farmer-Steckdose")
+        mode, link, n = body.get("mode"), o.backend.link, o.backend.outlet
+        if mode == "grow":
+            role = body.get("role")
+            if role not in GGS_ROLES:
+                raise ValueError("Ungültige Rolle")
+            o_mode = "auto"
+        elif mode in spiderfarmer.MODE_TYPES:
+            role, o_mode = outputs.MANUAL, ("on" if body.get("on") else "off") if mode == "manual" else "auto"
+            if mode != "manual":
+                if link.psmode() == 0:
+                    raise ValueError("Diese Leiste schaltet direkt (psmode 0) – Zeitfenster/Zyklus/Bewässerung gehen nur in psmode 1")
+                base = link.outlet_config(n)
+                if base is None:
+                    raise ValueError("Konfiguration der Leiste noch nicht gelesen – gleich nochmal versuchen")
+                try:
+                    cfg = spiderfarmer.mode_config(base, mode, body)
+                except (ValueError, KeyError, TypeError):
+                    raise ValueError("Ungültige Eingaben")
+                try:
+                    link.write_outlet(n, cfg)
+                except RuntimeError as e:
+                    raise ValueError(str(e))
+        else:
+            raise ValueError("Ungültiger Modus")
+        with self.lock:
+            o.role, o.mode = role, o_mode
+            self.has_dehum = any(x.role == "dehumidifier" for x in self.outs.values())
+            self.saved.setdefault("roles", {})[name] = role
+            self.saved.setdefault("modes", {})[name] = o_mode
+            settings.save(self._p("settings.json"), self.saved)
+            self.rev += 1
+            self.event("mode", f"{name}: GGS-Modus {mode}" + (f" ({role})" if mode == "grow" else ""))
+
+    def _ggs_info(self, o):
+        """Für das Dashboard: aktueller GGS-Modus und gespeicherte Einstellungen einer Spider-Farmer-Steckdose."""
+        if o.info.get("type") != "spiderfarmer" or not hasattr(o.backend, "link"):
+            return None
+        link, n = o.backend.link, o.backend.outlet
+        cfg = link.outlet_config(n)
+        return {"psmode": link.psmode(), "cfg": cfg, "probes": [{"id": i, "label": l} for i, l in link.probes()]}
 
     def run(self):
         while not self.stop_evt.is_set():

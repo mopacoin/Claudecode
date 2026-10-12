@@ -77,6 +77,71 @@ def request(method, pid, uid, params=None, msg_id=None):
     return {"method": method, "pid": pid, "params": params, "msgId": msg_id, "uid": uid}
 
 
+# Steckdosen-Modi (modeType), live an Firmware 3.2 geprüft; 3 = Temperatur, 4 = Feuchte, 5 = CO2 nutzen wir nicht
+MODE_TYPES = {"manual": 0, "time": 1, "cycle": 2, "drip": 14}
+
+
+def _secs(hhmm):
+    h, m = (int(x) for x in str(hhmm).split(":"))
+    if not (0 <= h < 24 and 0 <= m < 60):
+        raise ValueError
+    return h * 3600 + m * 60
+
+
+def _int(v, lo, hi):
+    v = int(v)
+    if not lo <= v <= hi:
+        raise ValueError
+    return v
+
+
+def mode_config(base, mode, p):
+    """Neue Konfiguration einer Steckdose aus der gespeicherten (base) und den Eingaben p.
+    Die übrigen Modi bleiben erhalten (wie in der App). Wirft ValueError bei ungültigen Werten.
+      manual: on (0/1)
+      time:   periods [{start: "HH:MM", end: "HH:MM"}] (1–5)
+      cycle:  start "HH:MM", on_s, off_s, times
+      drip:   start, end ("HH:MM"), on_s, off_s, dry, target (%), sensor (Sonden-ID oder leer = Mittelwert)"""
+    c = json.loads(json.dumps(base or {}))
+    if mode == "manual":
+        c.update(modeType=0, mOnOff=1 if p.get("on") else 0)
+    elif mode == "time":
+        periods = p.get("periods") or []
+        if not 1 <= len(periods) <= 5:
+            raise ValueError
+        old = c.get("timePeriod") or []
+        tp = []
+        for i in range(5):
+            wm = (old[i] if i < len(old) else {}).get("weekmask", 127)
+            if i < len(periods):
+                tp.append({"enabled": 1, "weekmask": wm, "startTime": _secs(periods[i]["start"]), "endTime": _secs(periods[i]["end"])})
+            else:
+                tp.append({"weekmask": wm})
+        c.update(modeType=1, timePeriod=tp)
+    elif mode == "cycle":
+        ct = c.get("cycleTime") or {}
+        c.update(modeType=2, cycleTime={**ct, "weekmask": ct.get("weekmask", 127), "startTime": _secs(p["start"]),
+                                        "openDur": _int(p["on_s"], 1, 86400), "closeDur": _int(p["off_s"], 1, 86400),
+                                        "times": _int(p["times"], 1, 999)})
+    elif mode == "drip":
+        dry, target = _int(p["dry"], 0, 100), _int(p["target"], 0, 100)
+        if dry >= target:
+            raise ValueError
+        we = c.get("wateringEnv") or {}
+        periods = we.get("period") or [{}]
+        first = {**periods[0], "enabled": 1, "startTime": _secs(p["start"]), "endTime": _secs(p["end"]),
+                 "openDur": _int(p["on_s"], 1, 3600), "closeDur": _int(p["off_s"], 1, 86400), "target": target, "dry": dry}
+        first.setdefault("tmn", 1)
+        c.update(modeType=14, wateringEnv={**we, "period": [first] + periods[1:], "extra": we.get("extra", {"enabled": 0})})
+        if p.get("sensor"):
+            c["bind"] = {"bindType": 1, "id": str(p["sensor"])}
+        else:
+            c.pop("bind", None)  # ohne Kopplung nimmt der GGS den Mittelwert aller Sonden
+    else:
+        raise ValueError
+    return c
+
+
 class Reassembler:
     """Setzt Notify-Daten zu JSON-Nachrichten zusammen (Rahmen können über mehrere Pakete verteilt sein)."""
 
@@ -211,6 +276,7 @@ class GGSLink:
         # pid = WLAN-MAC des ESP32; die BLE-MAC ist WLAN-MAC + 2
         self.pid = pid or "%012X" % (int(mac.replace(":", ""), 16) - 2)
         self.dev_sta, self.t, self.error = None, 0.0, "verbindet …"
+        self.config, self.cfg_seq = None, 0   # configFile aus getConfigFile, Zähler je empfangener Fassung
         self.cmds = queue.Queue()
         self.cond = threading.Condition()
         self.stopping = False
@@ -229,13 +295,16 @@ class GGSLink:
     def _session(self):
         att = self.transport(self.mac)
         try:
-            rx, last_rx, last_req = Reassembler(), time.monotonic(), 0.0
+            rx, last_rx, last_req, last_cfg = Reassembler(), time.monotonic(), 0.0, 0.0
             time.sleep(1.5)  # MTU/CCCD-Antworten abwarten
             while not self.stopping:
                 now = time.monotonic()
                 if now - last_req > 20:  # falls er nicht von selbst schickt
                     self._send(att, request("getDevSta", self.pid, self.uid))
                     last_req = now
+                if now - last_cfg > 300:  # Konfiguration (Steckdosen-Modi) regelmäßig nachlesen, z. B. nach Änderung in der App
+                    self._send(att, request("getConfigFile", self.pid, self.uid))
+                    last_cfg = now
                 while not self.cmds.empty():
                     self._send(att, self.cmds.get_nowait())
                 data = att.recv()
@@ -255,9 +324,15 @@ class GGSLink:
             time.sleep(0.1)
 
     def _handle(self, m):
-        if m.get("method") == "getDevSta" and m.get("code") == 200:
+        if m.get("code") != 200:
+            return
+        if m.get("method") == "getDevSta":
             with self.cond:
                 self.dev_sta, self.t, self.error = m, time.monotonic(), None
+                self.cond.notify_all()
+        elif m.get("method") == "getConfigFile" and isinstance(m.get("data", {}).get("configFile"), dict):
+            with self.cond:
+                self.config, self.cfg_seq = m["data"]["configFile"], self.cfg_seq + 1
                 self.cond.notify_all()
 
     def outlet(self, n):
@@ -265,18 +340,55 @@ class GGSLink:
         o = (self.dev_sta or {}).get("data", {}).get("outlet", {}).get(f"O{n}", {})
         return None if "on" not in o else bool(o["on"])
 
-    def set_outlet(self, n, on, timeout=20):
-        """Schaltet O<n> und wartet, bis der Controller den Zustand meldet.
-        psmode 1: Steckdosen folgen ihrer Konfiguration -> setConfigField (manueller Modus, mOnOff).
-        psmode 0: direkt schalten -> setOutlet (setConfigField wird dort zwar bestätigt, schaltet aber nicht)."""
-        if self.outlet(n) == on:
-            return  # steht schon richtig -> nicht in den Flash des Controllers schreiben
+    def psmode(self):
+        return (self.dev_sta or {}).get("data", {}).get("outlet", {}).get("psmode")
+
+    def outlet_config(self, n):
+        """Gespeicherte Konfiguration der Steckdose O<n> (Kopie) oder None, solange noch nicht gelesen."""
+        if self.config is None:
+            return None
+        return json.loads(json.dumps(self.config.get("outlet", {}).get(f"O{n}", {})))
+
+    def probes(self):
+        """Bodensonden aus der Konfiguration: [(id, Name)]."""
+        cfg = (self.config or {}).get("device") or {}
+        return [(s["id"], s.get("label") or s["id"]) for s in cfg.get("senConfig", []) if s.get("id")]
+
+    def _wait(self, ok, timeout, what):
+        end = time.monotonic() + timeout
+        with self.cond:
+            while not ok():
+                left = end - time.monotonic()
+                if left <= 0:
+                    raise RuntimeError(self.error or f"Spider Farmer: {what}")
+                self.cond.wait(left)
+
+    def write_outlet(self, n, cfg, timeout=20):
+        """Schreibt die komplette Konfiguration von O<n> (setConfigField ersetzt sie ganz!) und wartet,
+        bis der Controller sie beim Nachlesen meldet."""
         key = f"O{n}"
-        if (self.dev_sta or {}).get("data", {}).get("outlet", {}).get("psmode") == 0:
+        self.cmds.put(request("setConfigField", self.pid, self.uid, {"keyPath": ["outlet", key], key: cfg}))
+        seq = self.cfg_seq
+        self.cmds.put(request("getConfigFile", self.pid, self.uid))
+        self._wait(lambda: self.cfg_seq > seq and self.outlet_config(n) == cfg, timeout,
+                   f"O{n}: neue Konfiguration nicht bestätigt")
+
+    def set_outlet(self, n, on, timeout=20):
+        """Schaltet O<n> manuell und wartet, bis der Controller den Zustand meldet.
+        psmode 1: Steckdosen folgen ihrer Konfiguration -> setConfigField mit modeType 0 (manuell) und mOnOff,
+                  zusammengeführt mit der gespeicherten Konfiguration (setConfigField ersetzt sie sonst ganz).
+        psmode 0: direkt schalten -> setOutlet (setConfigField wird dort zwar bestätigt, schaltet aber nicht)."""
+        if self.psmode() == 0:
+            if self.outlet(n) == on:
+                return
             self.cmds.put(request("setOutlet", self.pid, self.uid, {"num": n, "on": int(on), "mode": None}))
         else:
-            self.cmds.put(request("setConfigField", self.pid, self.uid,
-                                  {"keyPath": ["outlet", key], key: {"modeType": 0, "mOnOff": int(on)}}))
+            base = self.outlet_config(n)
+            if base is None:
+                raise RuntimeError("Spider Farmer: Konfiguration noch nicht gelesen")
+            if self.outlet(n) == on and base.get("modeType", 0) == 0 and base.get("mOnOff") == int(on):
+                return  # steht schon richtig -> nicht in den Flash des Controllers schreiben
+            self.write_outlet(n, {**base, "modeType": 0, "mOnOff": int(on)}, timeout)
         end = time.monotonic() + timeout
         with self.cond:
             while self.outlet(n) != on:

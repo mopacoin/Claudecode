@@ -79,7 +79,7 @@ class Controller:
         self.minutes = deque(maxlen=10080)       # 7 Tage, 1 Wert/min
         self.events = deque(maxlen=500)
         self.alarms, self._pending = {}, {}
-        self._prev_state = {n: False for n in self.outs}
+        self._prev_state = {n: None if o.manual else False for n, o in self.outs.items()}  # None = noch nie gemeldet
         self._last_minute = None
         self._adv_block = None
         self.pump_until = 0.0
@@ -260,9 +260,10 @@ class Controller:
                     self._apply_servo(o, want, day, ex_w)
                 else:
                     o.apply(want.get(o.role, False))
-                if o.state != self._prev_state[n]:
+                if o.known and o.state != self._prev_state[n]:
+                    first = self._prev_state[n] is None  # erste Meldung eines Handschalt-Geräts ist kein Schaltvorgang
                     self._prev_state[n] = o.state
-                    if not o.proportional:  # stufenlose Abluft wechselt laufend – nicht als EIN/AUS protokollieren
+                    if not o.proportional and not first:  # stufenlose Abluft wechselt laufend – nicht als EIN/AUS protokollieren
                         self.event("output", f"{n}: {'EIN' if o.state else 'AUS'}")
             self._effect_step(now, day, active)
             if getattr(self, "_dev_min", None) != (now.hour, now.minute):

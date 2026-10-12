@@ -51,6 +51,7 @@ class Output:
         self._max_hit = False  # Laufzeitbegrenzung ausgelöst -> erst nach "aus" wieder freigeben
         self.manual = self.role == MANUAL
         self._cmd = None
+        self.known = not self.manual  # manual: erst bekannt, wenn das Gerät meldet oder von Hand geschaltet wurde
         if not proportional and not self.manual:
             backend.set(False)
 
@@ -85,6 +86,7 @@ class Output:
                 self.backend.set(None)  # Netzwerk-Backend: nicht mehr auffrischen
         actual = self.backend.actual() if hasattr(self.backend, "actual") else None
         self.state = bool(self._cmd) if actual is None else actual
+        self.known = actual is not None or self._cmd is not None
 
     def apply_level(self, angle, watts, deadband=3):
         """Stufenlos: Winkel nur senden, wenn er sich um mindestens `deadband` Grad ändert."""

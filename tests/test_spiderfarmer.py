@@ -195,5 +195,23 @@ class TestManualRole(unittest.TestCase):
         self.assertTrue(o.state)
 
 
+class TestManualEvents(unittest.TestCase):
+    def test_first_report_is_not_logged_as_switching(self):
+        import tempfile
+        from growcontroller import controller
+        with tempfile.TemporaryDirectory() as tmp:
+            ctl = controller.Controller({"interval_s": 5, "sensors": {"air": {"driver": "sim"}}, "outputs": {},
+                                         "light": {"on": "06:00", "off": "00:00"}, "climate": {}, "irrigation": {}}, tmp)
+            be = Reported(actual=None)
+            ctl.outs["ggs_o1"] = outputs.Output("ggs_o1", be, role="manual")
+            ctl._prev_state["ggs_o1"] = None
+            msgs = lambda: [e["msg"] for e in ctl.events if e["msg"].startswith("ggs_o1")]
+            ctl.step()                       # noch keine Meldung
+            be.now = True; ctl.step()        # erste Meldung: an -> kein "EIN" im Protokoll
+            self.assertEqual(msgs(), [])
+            be.now = False; ctl.step()       # echte Änderung (z. B. in der App geschaltet)
+            self.assertEqual(msgs(), ["ggs_o1: AUS"])
+
+
 if __name__ == "__main__":
     unittest.main()

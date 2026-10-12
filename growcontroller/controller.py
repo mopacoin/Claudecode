@@ -47,6 +47,7 @@ class Controller:
             cfg[sec] = {**d, **cfg.get(sec, {}), **self.saved.get(sec, {})}
         # prefix: z. B. "room_" für einen Raum-Sensor, der nur angezeigt wird und nicht regelt
         self.sensors = {n: (c.get("prefix", ""), sensors.create(c)) for n, c in cfg["sensors"].items()}
+        self.sensor_labels = {n: c.get("label", n) for n, c in cfg["sensors"].items()}  # Anzeige-Name im Dashboard
         # Kalibrier-Versatz je Sensor (z. B. "temp_offset": -0.4, "hum_offset": 2) – wie bei Profi-Controllern
         self._offsets = {n: (float(c.get("temp_offset", 0)), float(c.get("hum_offset", 0))) for n, c in cfg["sensors"].items()}
         self._sensor_ok = {n: time.monotonic() for n in self.sensors}  # letzte erfolgreiche Messung je Sensor
@@ -816,6 +817,7 @@ class Controller:
                                "next": nxt and nxt.isoformat(timespec="minutes"), "available": bool(pump),
                                "enabled": ir["enabled"], "pump_mode": pump.mode if pump else None,
                                "running": time.monotonic() < self.pump_until},
+                "sensors": {n: {"prefix": p, "label": self.sensor_labels[n]} for n, (p, _s) in self.sensors.items()},
                 "outputs": {n: {"state": o.state, "mode": o.mode, "role": o.role,
                                 "ok": getattr(o.backend, "healthy", True), "info": o.info,
                                 "proportional": o.proportional, "angle": o.angle, "watts": o.watts} for n, o in self.outs.items()},

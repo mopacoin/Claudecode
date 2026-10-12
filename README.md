@@ -72,6 +72,7 @@ Verlaufsdateien werden nach `history_days` (400) Tagen gelöscht, das Ereignispr
 
 `"prefix": "room_"` macht einen Sensor zum reinen Anzeige-Sensor (Raumklima), er regelt nicht.
 `"temp_offset"` / `"hum_offset"` gleichen Sensor-Abweichungen aus (z. B. `-0.4` °C, `+2` %).
+`"label"` ist der Anzeige-Name im Dashboard (z. B. `"GGS 1"` auf der Substrat-Karte; Standard: Name des Sensors).
 Werte, die länger als `sensor_timeout_s` (120 s) nicht aktualisiert wurden, verschwinden aus Anzeige und Regelung;
 fällt ein Zusatz-Sensor 5 min aus, gibt es einen Alarm.
 Govee-Sensoren testen: `.venv/bin/python -m growcontroller.govee_scan <MAC> …` zeigt Rohdaten und erkannte Werte.

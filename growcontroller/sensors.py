@@ -191,5 +191,5 @@ DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B2
 
 
 def create(cfg):
-    skip = ("driver", "prefix", "temp_offset", "hum_offset")  # Offsets wendet der Controller an
+    skip = ("driver", "prefix", "temp_offset", "hum_offset", "label")  # Offsets wendet der Controller an
     return DRIVERS[cfg["driver"]](**{k: v for k, v in cfg.items() if k not in skip})

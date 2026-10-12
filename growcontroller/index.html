@@ -409,17 +409,21 @@ function renderRoom() {
     ${batt ? `<div class="sub" style="margin-top:4px">Sensor-Akku: ${batt}</div>` : ''}`;
 }
 function renderSoil() {
-  // Bodenwerte (z. B. Spider Farmer GGS): Mittelwert <p>soil_temp/hum/ec und je Sonde <p>soil1_…
-  const r = S.readings, card = $('#soilCard'), k = Object.keys(r).find(x => x.endsWith('soil_ec') || x.endsWith('soil_hum'));
-  card.style.display = k ? '' : 'none'; if (!k) return;
-  const p = k.slice(0, k.lastIndexOf('soil_')), v = x => r[p + x] ?? '–';
-  const probes = [...new Set(Object.keys(r).filter(x => x.startsWith(p) && /^soil\d+_/.test(x.slice(p.length))).map(x => x.slice(p.length).split('_')[0]))].sort();
-  card.innerHTML = `<h3>${ico('grid')} Substrat</h3><div class="row" style="gap:18px">
-    <div style="font-size:26px;font-weight:700">${v('soil_temp')}<small class="sub"> °C</small></div>
-    <div style="font-size:26px;font-weight:700">${v('soil_hum')}<small class="sub"> %</small></div>
-    <div style="font-size:26px;font-weight:700">${v('soil_ec')}<small class="sub"> mS/cm</small></div></div>
-    ${p && r[p + 'temp'] != null ? `<div class="sub" style="margin-top:8px">Klima am Controller: <b style="color:var(--text)">${v('temp')} °C · ${v('hum')} % · VPD ${v('vpd')} kPa</b></div>` : ''}
-    ${probes.length ? `<div class="sub" style="margin-top:8px">${probes.map(s => `Sonde ${s.slice(4)}: <b style="color:var(--text)">${v(s + '_temp')} °C · ${v(s + '_hum')} % · EC ${v(s + '_ec')}</b>`).join('<br>')}</div>` : ''}`;
+  // Bodenwerte (z. B. Spider Farmer GGS) je Sensor: Mittelwert <p>soil_temp/hum/ec und je Sonde <p>soil1_…
+  const r = S.readings, card = $('#soilCard');
+  const ps = [...new Set(Object.keys(r).filter(x => /soil_(ec|hum)$/.test(x)).map(x => x.slice(0, x.lastIndexOf('soil_'))))].sort();
+  card.style.display = ps.length ? '' : 'none'; if (!ps.length) return;
+  const label = p => Object.values(S.sensors || {}).find(s => s.prefix === p)?.label || p.replace(/_$/, '').toUpperCase() || 'Sensor';
+  const big = (x, u) => `<div style="font-size:22px;font-weight:700">${x ?? '–'}<small class="sub"> ${u}</small></div>`;
+  card.innerHTML = `<h3>${ico('grid')} Substrat</h3>` + ps.map((p, i) => {
+    const v = x => r[p + x] ?? '–';
+    const probes = [...new Set(Object.keys(r).filter(x => x.startsWith(p) && /^soil\d+_/.test(x.slice(p.length))).map(x => x.slice(p.length).split('_')[0]))].sort();
+    return `<div style="${i ? 'margin-top:14px;padding-top:12px;border-top:1px solid var(--line, rgba(127,127,127,.2))' : ''}">
+      <div style="font-weight:600;margin-bottom:6px">${esc(label(p))}</div>
+      <div class="row" style="gap:18px">${big(r[p + 'soil_temp'], '°C')}${big(r[p + 'soil_hum'], '%')}${big(r[p + 'soil_ec'], 'mS/cm')}</div>
+      ${r[p + 'temp'] != null ? `<div class="sub" style="margin-top:6px">Klima: <b style="color:var(--text)">${v('temp')} °C · ${v('hum')} % · VPD ${v('vpd')} kPa</b></div>` : ''}
+      ${probes.length > 1 ? `<div class="sub" style="margin-top:6px">${probes.map(s => `Sonde ${s.slice(4)}: <b style="color:var(--text)">${v(s + '_temp')} °C · ${v(s + '_hum')} % · EC ${v(s + '_ec')}</b>`).join('<br>')}</div>` : ''}</div>`;
+  }).join('');
 }
 function renderLight() {
   const l = CFG?.values.light; if (!l) return;

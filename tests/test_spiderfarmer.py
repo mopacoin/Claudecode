@@ -212,6 +212,20 @@ class TestManualRole(unittest.TestCase):
         self.assertTrue(o.state)
 
 
+class TestSensorLabels(unittest.TestCase):
+    def test_status_lists_sensor_prefix_and_label(self):
+        import tempfile
+        from growcontroller import controller
+        with tempfile.TemporaryDirectory() as tmp:
+            ctl = controller.Controller({"interval_s": 5, "outputs": {}, "light": {"on": "06:00", "off": "00:00"},
+                                         "climate": {}, "irrigation": {},
+                                         "sensors": {"air": {"driver": "sim"},
+                                                     "ggs2": {"driver": "sim", "prefix": "ggs2_", "label": "GGS 2"}}}, tmp)
+            st = ctl.status()["sensors"]
+            self.assertEqual(st["ggs2"], {"prefix": "ggs2_", "label": "GGS 2"})
+            self.assertEqual(st["air"], {"prefix": "", "label": "air"})   # ohne label: Name
+
+
 class TestManualEvents(unittest.TestCase):
     def test_first_report_is_not_logged_as_switching(self):
         import tempfile

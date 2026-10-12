@@ -180,6 +180,7 @@ tr+tr td{border-top:1px solid var(--line)}
             <div class="scale"><span>0</span><span>0,4</span><span>0,8</span><span>1,2</span><span>1,6</span><span>2,0 kPa</span></div>
             <div class="scale" style="margin-top:6px"><span></span><span>Keimling</span><span>Wachstum</span><span>Blüte</span><span>Spätblüte</span><span></span></div></div>
           <div class="card" id="roomCard" style="display:none"></div>
+          <div class="card" id="soilCard" style="display:none"></div>
           <div class="card" id="irrMini"></div>
         </div>
         <div class="card mt" id="smartCard" style="display:none"></div>
@@ -381,7 +382,7 @@ function renderOverview() {
   $('#zmark').style.left = Math.min(100, (S.vpd ?? 0) / 2 * 100) + '%';
   $('#banner').innerHTML = (S.alarms.length ? `<div class="banner">${ico('bell')}<div>${S.alarms.map(a => `<div><b>${esc(a.msg)}</b></div>`).join('')}</div></div>` : '')
     + (S.exhaust?.notes || []).filter(noteRelevant).map(n => `<div class="banner info">${ico(n.key === 'temp' ? 'thermo' : 'drops')}<div>${roomNote(n)}</div></div>`).join('');
-  renderLight(); renderIrrMini(); renderRoom();
+  renderLight(); renderIrrMini(); renderRoom(); renderSoil();
 }
 function noteRelevant(n) {  // im Zielbereich (Soll + Hysterese) kein Warnhinweis
   const r = S.readings, cl = CFG?.values?.climate || {};
@@ -406,6 +407,19 @@ function renderRoom() {
     <div style="font-size:26px;font-weight:700">${r.room_hum ?? '–'}<small class="sub"> %</small></div></div>
     <div class="sub" style="margin-top:8px">Zelt gegenüber Raum: <b style="color:var(--text)">${d(r.temp, r.room_temp, '°C')}</b> · <b style="color:var(--text)">${d(r.hum, r.room_hum, '%')}</b></div>
     ${batt ? `<div class="sub" style="margin-top:4px">Sensor-Akku: ${batt}</div>` : ''}`;
+}
+function renderSoil() {
+  // Bodenwerte (z. B. Spider Farmer GGS): Mittelwert <p>soil_temp/hum/ec und je Sonde <p>soil1_…
+  const r = S.readings, card = $('#soilCard'), k = Object.keys(r).find(x => x.endsWith('soil_ec') || x.endsWith('soil_hum'));
+  card.style.display = k ? '' : 'none'; if (!k) return;
+  const p = k.slice(0, k.lastIndexOf('soil_')), v = x => r[p + x] ?? '–';
+  const probes = [...new Set(Object.keys(r).filter(x => x.startsWith(p) && /^soil\d+_/.test(x.slice(p.length))).map(x => x.slice(p.length).split('_')[0]))].sort();
+  card.innerHTML = `<h3>${ico('grid')} Substrat</h3><div class="row" style="gap:18px">
+    <div style="font-size:26px;font-weight:700">${v('soil_temp')}<small class="sub"> °C</small></div>
+    <div style="font-size:26px;font-weight:700">${v('soil_hum')}<small class="sub"> %</small></div>
+    <div style="font-size:26px;font-weight:700">${v('soil_ec')}<small class="sub"> mS/cm</small></div></div>
+    ${p && r[p + 'temp'] != null ? `<div class="sub" style="margin-top:8px">Klima am Controller: <b style="color:var(--text)">${v('temp')} °C · ${v('hum')} % · VPD ${v('vpd')} kPa</b></div>` : ''}
+    ${probes.length ? `<div class="sub" style="margin-top:8px">${probes.map(s => `Sonde ${s.slice(4)}: <b style="color:var(--text)">${v(s + '_temp')} °C · ${v(s + '_hum')} % · EC ${v(s + '_ec')}</b>`).join('<br>')}</div>` : ''}`;
 }
 function renderLight() {
   const l = CFG?.values.light; if (!l) return;

@@ -181,7 +181,13 @@ class MerossPower:
         return dict(self.val)
 
 
-DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B20, "govee": Govee, "meross_power": MerossPower}
+def SpiderFarmer(**kw):
+    from .spiderfarmer import SpiderFarmerSensor
+    return SpiderFarmerSensor(**kw)
+
+
+DRIVERS = {"sim": SimSensor, "dht22": DHT22, "bme280": BME280, "ds18b20": DS18B20, "govee": Govee, "meross_power": MerossPower,
+           "spiderfarmer": SpiderFarmer}
 
 
 def create(cfg):

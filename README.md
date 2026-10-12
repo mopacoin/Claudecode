@@ -67,6 +67,7 @@ Verlaufsdateien werden nach `history_days` (400) Tagen gelöscht, das Ereignispr
 | `govee` | Govee-Thermo-Hygrometer per Bluetooth (H5072/74/75, H5100–05, H5174/77, H5179), Paket `bleak` | `mac` |
 | `bme280` / `dht22` / `ds18b20` | kabelgebunden | siehe `sensors.py` |
 | `meross_power` | Leistungsmessung einer Meross-Steckdose (MSS305) im LAN, nur lesend | `ip`, `key`, `poll_s` |
+| `spiderfarmer` | Spider Farmer GGS-Controller per Bluetooth (lokal, ohne App/Cloud): `temp`, `hum`, `vpd`, Boden `soil_temp`/`soil_hum`/`soil_ec` (Mittelwert) und je Sonde `soil1_…` | `mac` (Bluetooth), `uid` (Benutzer-ID aus der App, optional) |
 | `sim` | simuliert (Test) | – |
 
 `"prefix": "room_"` macht einen Sensor zum reinen Anzeige-Sensor (Raumklima), er regelt nicht.
@@ -86,6 +87,18 @@ Jeder Ausgang hat `type` und optional `role` (Standard = Name). Rollen: `light`,
 | `meross` | Meross-Steckdose über die Cloud (`meross-iot`) | `device` (Name oder UUID), `channel`; Zugang im Block `meross` |
 | `tuya` | Tuya-Entfeuchter lokal (`tinytuya`) | `dev_id`, `local_key`, `address` (`Auto`), `version` (`auto`), `dp`, `value_on`, `value_off` |
 | `mqtt_servo` | Servo/Klappe per MQTT | `topic`, `angle_on`, `angle_off`, `payload` (`"{angle}"` oder JSON-Vorlage); Broker im Block `mqtt` |
+| `spiderfarmer` | Steckdose O1–O5 eines Spider Farmer GGS-Controllers per Bluetooth | `mac`, `outlet` (1–5), `uid` |
+
+**Spider Farmer GGS:** Sensor und Steckdosen teilen sich eine dauerhafte Bluetooth-Verbindung (`growcontroller/spiderfarmer.py`,
+Protokoll dort beschrieben; Paket `cryptography`). Sie geht direkt über einen L2CAP-Socket, weil die BlueZ-Dienstsuche bei diesem
+Gerät hängen bleibt – der Dienst muss dafür als root laufen. Solange der Pi verbunden ist, kann sich die Spider-Farmer-App nicht per
+Bluetooth verbinden. Ein Ausgang vom Typ `spiderfarmer` stellt seine Steckdose auf **manuell** (die Automatik des GGS für diese
+Steckdose ist dann aus) und schreibt nur, wenn der gemeldete Zustand abweicht. Getestet mit Firmware 3.2 (Hardware S-ZC5-V2.5);
+neuere Firmware verschlüsselt anders.
+```json
+"sensors": { "ggs": { "driver": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "uid": "123456", "prefix": "ggs_" } },
+"outputs": { "ggs_o5": { "type": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "uid": "123456", "outlet": 5, "role": "fan" } }
+```
 
 Geheimnisse: `.env.example` nach `.env` kopieren (nie committen). Zugangsdaten als `${MEROSS_PASSWORD}`, `${TUYA_LOCAL_KEY}` usw. schreiben und als Umgebungsvariablen setzen
 (beim systemd-Dienst per `EnvironmentFile=`). Tuya `local_key`/DPs: `python3 -m tinytuya wizard`.

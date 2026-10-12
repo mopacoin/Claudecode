@@ -116,6 +116,8 @@ def _make_backend(typ, c, cfg, gpio, hub):
         return backends.MerossLocalBackend(**c)
     if typ == "tuya":
         return backends.TuyaBackend(**c)
+    if typ == "spiderfarmer":
+        return backends.SpiderFarmerBackend(**c)
     if typ == "mqtt_servo":
         m = cfg["mqtt"]
         h = hub("mqtt", lambda: backends.MqttHub(m["host"], m.get("port", 1883), m.get("username"), m.get("password")))

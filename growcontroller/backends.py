@@ -207,6 +207,19 @@ class TuyaBackend(WorkerBackend):
         raise RuntimeError("Tuya: " + "; ".join(errors))
 
 
+class SpiderFarmerBackend(WorkerBackend):
+    """Steckdose O1–O5 eines Spider Farmer GGS-Controllers per Bluetooth (setzt sie auf manuellen Modus).
+    Schreibt nur, wenn der gemeldete Zustand abweicht – das Auffrischen kostet keine Flash-Schreibzugriffe."""
+
+    def __init__(self, mac, outlet, uid="0", pid=None, **kw):
+        from .spiderfarmer import GGSLink
+        self.link, self.outlet = GGSLink.get(mac, uid, pid), int(outlet)
+        super().__init__(**kw)
+
+    def _send(self, on):
+        self.link.set_outlet(self.outlet, bool(on))
+
+
 class MqttHub:
     """Ein MQTT-Client pro Broker, mit automatischem Wiederverbinden."""
 

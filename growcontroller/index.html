@@ -112,6 +112,7 @@ button.sec{background:var(--card2);color:var(--text);border:1px solid var(--line
 .preset li b{color:var(--text);font-weight:600}
 /* Zyklen-Editor */
 .tag{font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--card2);color:var(--mute);vertical-align:middle;margin-left:6px}
+.ggsq button,.ggsform button{padding:8px 13px;font-size:13px}
 button.danger{color:var(--bad)}.preset .row{gap:8px}.preset .row button{padding:8px 13px;font-size:13px}
 .newcard{display:grid;place-items:center;min-height:200px;border:2px dashed var(--line);background:none;color:var(--mute);cursor:pointer;font:inherit;border-radius:var(--r);transition:.15s}
 .newcard:hover{border-color:var(--acc);color:var(--text);background:var(--card)}.newcard b{display:block;font-size:34px;line-height:1;margin-bottom:6px;color:var(--acc)}
@@ -581,8 +582,8 @@ function ggsForm(n, o) {
   if (d.mode === 'manual') body = `<div class="sub" style="margin-top:6px">Ein/Aus über die Knöpfe unten.</div>`;
   if (d.mode === 'grow') body = `<div class="fld"><label>Rolle in der Regel-Logik</label><div class="ig"><select data-k="role">${Object.keys(ROLE_ICO).map(r => `<option value="${r}" ${d.role === r ? 'selected' : ''}>${esc(LABEL[r] || r)}</option>`).join('')}</select></div></div>`;
   if (d.mode === 'time') body = d.periods.map((p, i) => `<div class="row" style="gap:8px;align-items:flex-end">${f('p' + i + 's', 'Fenster ' + (i + 1) + ' von', p.start, 'time')}${f('p' + i + 'e', 'bis', p.end, 'time')}
-      <button data-ga="delp" data-i="${i}" ${d.periods.length < 2 ? 'disabled' : ''} style="margin-bottom:10px">✕</button></div>`).join('')
-    + (d.periods.length < 5 ? `<button data-ga="addp">+ Zeitfenster</button>` : '');
+      <button class="sec" data-ga="delp" data-i="${i}" ${d.periods.length < 2 ? 'disabled' : ''} style="margin-bottom:10px">✕</button></div>`).join('')
+    + (d.periods.length < 5 ? `<button class="sec" data-ga="addp">+ Zeitfenster</button>` : '');
   if (d.mode === 'cycle') body = `<div class="fgrid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">${f('c_start', 'Start', d.c_start, 'time')}${f('c_on', 'An', d.c_on, 'number', 'min', 'min="0.1" step="0.1"')}${f('c_off', 'Aus', d.c_off, 'number', 'min', 'min="0.1" step="0.1"')}${f('c_times', 'Wiederholungen', d.c_times, 'number', '', 'min="1" max="999"')}</div>`;
   if (d.mode === 'drip') body = `<div class="fgrid" style="grid-template-columns:repeat(auto-fit,minmax(120px,1fr))">${f('d_start', 'Von', d.d_start, 'time')}${f('d_end', 'Bis', d.d_end, 'time')}
       ${f('d_on', 'Pumpe an', d.d_on, 'number', 's', 'min="1"')}${f('d_off', 'Pause', d.d_off, 'number', 's', 'min="1"')}${f('d_dry', 'Gießen unter', d.d_dry, 'number', '%', 'min="0" max="100"')}${f('d_target', 'bis', d.d_target, 'number', '%', 'min="0" max="100"')}</div>
@@ -590,7 +591,7 @@ function ggsForm(n, o) {
   return `<div class="ggsform" data-n="${esc(n)}" style="margin-top:10px">
     <div class="fld"><label>Modus</label><div class="ig"><select data-k="mode">${modes.map(([m, l]) => `<option value="${m}" ${d.mode === m ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
     ${body}
-    <div class="row" style="gap:8px;margin-top:10px">${d.mode === 'manual' ? `<button data-ga="on">Ein</button><button data-ga="off">Aus</button>` : `<button class="pri" data-ga="apply">Übernehmen</button>`}<button data-ga="cancel">Abbrechen</button></div></div>`;
+    <div class="row" style="gap:8px;margin-top:10px">${d.mode === 'manual' ? `<button class="sec" data-ga="on">Ein</button><button class="sec" data-ga="off">Aus</button>` : `<button class="pri" data-ga="apply">Übernehmen</button>`}<button class="sec" data-ga="cancel">Abbrechen</button></div></div>`;
 }
 function ggsBody(n) {
   const d = GGS_OPEN[n], t = s => s || '00:00';
@@ -613,8 +614,8 @@ function renderDevices() {
         <div class="lvl"><i style="width:${exShare(o.watts) * 100}%"></i></div>` : ''}
       <div class="info">${esc(info)}</div>
       ${o.ggs ? `<div class="sub" style="margin:8px 0">${ggsSummary(o)}</div>
-        <div class="row ggsq" style="gap:8px">${o.role === 'manual' ? `<button data-gq="on" data-n="${esc(n)}" class="${o.mode === 'on' ? 'pri' : ''}">Ein</button><button data-gq="off" data-n="${esc(n)}" class="${o.mode === 'off' ? 'pri' : ''}">Aus</button>` : ''}
-        <button data-gq="edit" data-n="${esc(n)}">Modus …</button></div>` : `<div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${(o.proportional ? {auto: 'Auto', on: 'Maximum', off: 'Grundlast'} : {auto: o.role === 'manual' ? 'Frei' : 'Auto', on: 'Ein', off: 'Aus'})[m]}</button>`).join('')}</div>`}
+        <div class="row ggsq" style="gap:8px">${o.role === 'manual' ? `<button data-gq="on" data-n="${esc(n)}" class="${o.mode === 'on' ? 'pri' : 'sec'}">Ein</button><button data-gq="off" data-n="${esc(n)}" class="${o.mode === 'off' ? 'pri' : 'sec'}">Aus</button>` : ''}
+        <button class="sec" data-gq="edit" data-n="${esc(n)}">Modus …</button></div>` : `<div class="seg">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${(o.proportional ? {auto: 'Auto', on: 'Maximum', off: 'Grundlast'} : {auto: o.role === 'manual' ? 'Frei' : 'Auto', on: 'Ein', off: 'Aus'})[m]}</button>`).join('')}</div>`}
       ${o.ggs && o.role !== 'manual' ? `<div class="seg" style="margin-top:8px">${['auto', 'on', 'off'].map(m => `<button data-n="${esc(n)}" data-m="${m}" class="${o.mode === m ? 'on' : ''} ${m === 'off' ? 'off' : ''}">${{auto: 'Auto', on: 'Ein', off: 'Aus'}[m]}</button>`).join('')}</div>` : ''}</div>`;
   }).join('');
   renderCal();

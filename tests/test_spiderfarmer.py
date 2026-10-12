@@ -37,18 +37,20 @@ DEV = [bytes.fromhex(h) for h in (
     "68756d69536f696c223a302c224543536f696c223a312e392c2274797065436f6465223a34333532317d5d7d7df752")]
 
 
-def dev_sta(o5):
-    return {"method": "getDevSta", "code": 200, "data": {"outlet": {"O5": {"on": o5}}, "sensor": {"temp": 20}}}
+def dev_sta(o5, psmode=1):
+    return {"method": "getDevSta", "code": 200, "data": {"outlet": {"psmode": psmode, "O5": {"on": o5}}, "sensor": {"temp": 20}}}
 
 
 class Fake:
-    """Ersetzt den Bluetooth-Socket: nimmt Rahmen entgegen, liefert Antwort-Rahmen."""
+    """Ersetzt den Bluetooth-Socket: nimmt Rahmen entgegen, liefert Antwort-Rahmen.
+    Wie die echte Leiste: psmode 1 schaltet per setConfigField, psmode 0 nur per setOutlet."""
     inst = None
+    psmode = 1
 
     def __init__(self, mac):
         self.written, self.rx = [], queue.Queue()
         Fake.inst = self
-        self.push(dev_sta(1))
+        self.push(dev_sta(1, self.psmode))
 
     def push(self, msg):
         for f in sf.build_frames(json.dumps(msg).encode(), typ=1):
@@ -63,8 +65,10 @@ class Fake:
     def write(self, frame):
         self.written.append(frame)
         req = json.loads(sf.decrypt(frame[20:-2]))
-        if req["method"] == "setConfigField":
-            self.push(dev_sta(req["params"]["O5"]["mOnOff"]))
+        if req["method"] == "setConfigField" and self.psmode == 1:
+            self.push(dev_sta(req["params"]["O5"]["mOnOff"], 1))
+        if req["method"] == "setOutlet" and self.psmode == 0 and req["params"]["num"] == 5:
+            self.push(dev_sta(req["params"]["on"], 0))
 
     def close(self):
         pass
@@ -142,6 +146,19 @@ class TestLink(unittest.TestCase):
         cfg = [r for r in sent if r["method"] == "setConfigField"]
         self.assertEqual(len(cfg), 1)
         self.assertEqual(cfg[0]["uid"], "155855")
+
+    def test_psmode_0_uses_set_outlet(self):
+        Fake.psmode = 0
+        try:
+            link = sf.GGSLink.get("80:F1:B2:B2:E8:52", uid="")
+            self.wait_data(link)
+            link.set_outlet(5, False)
+            self.assertFalse(link.outlet(5))
+            sent = [json.loads(sf.decrypt(f[20:-2])) for f in Fake.inst.written]
+            self.assertIn({"num": 5, "on": 0, "mode": None}, [r.get("params") for r in sent if r["method"] == "setOutlet"])
+            self.assertFalse(any(r["method"] == "setConfigField" for r in sent))
+        finally:
+            Fake.psmode = 1
 
     def test_no_write_when_state_already_matches(self):
         link = sf.GGSLink.get("80:F1:B2:B1:C7:F2")

@@ -266,12 +266,17 @@ class GGSLink:
         return None if "on" not in o else bool(o["on"])
 
     def set_outlet(self, n, on, timeout=20):
-        """Schaltet O<n> (manueller Modus) und wartet, bis der Controller den Zustand meldet."""
+        """Schaltet O<n> und wartet, bis der Controller den Zustand meldet.
+        psmode 1: Steckdosen folgen ihrer Konfiguration -> setConfigField (manueller Modus, mOnOff).
+        psmode 0: direkt schalten -> setOutlet (setConfigField wird dort zwar bestätigt, schaltet aber nicht)."""
         if self.outlet(n) == on:
             return  # steht schon richtig -> nicht in den Flash des Controllers schreiben
         key = f"O{n}"
-        self.cmds.put(request("setConfigField", self.pid, self.uid,
-                              {"keyPath": ["outlet", key], key: {"modeType": 0, "mOnOff": int(on)}}))
+        if (self.dev_sta or {}).get("data", {}).get("outlet", {}).get("psmode") == 0:
+            self.cmds.put(request("setOutlet", self.pid, self.uid, {"num": n, "on": int(on), "mode": None}))
+        else:
+            self.cmds.put(request("setConfigField", self.pid, self.uid,
+                                  {"keyPath": ["outlet", key], key: {"modeType": 0, "mOnOff": int(on)}}))
         end = time.monotonic() + timeout
         with self.cond:
             while self.outlet(n) != on:

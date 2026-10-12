@@ -94,8 +94,9 @@ Dienstes), angezeigt wird der vom Gerät gemeldete Zustand.
 **Spider Farmer GGS:** Sensor und Steckdosen teilen sich eine dauerhafte Bluetooth-Verbindung (`growcontroller/spiderfarmer.py`,
 Protokoll dort beschrieben; Paket `cryptography`). Sie geht direkt über einen L2CAP-Socket, weil die BlueZ-Dienstsuche bei diesem
 Gerät hängen bleibt – der Dienst muss dafür als root laufen. Solange der Pi verbunden ist, kann sich die Spider-Farmer-App nicht per
-Bluetooth verbinden. Ein Ausgang vom Typ `spiderfarmer` stellt seine Steckdose auf **manuell** (die Automatik des GGS für diese
-Steckdose ist dann aus) und schreibt nur, wenn der gemeldete Zustand abweicht. Getestet mit Firmware 3.2 (Hardware S-ZC5-V2.5);
+Bluetooth verbinden. Ein Ausgang vom Typ `spiderfarmer` schreibt nur, wenn der gemeldete Zustand abweicht; je nach Leistenmodus
+(`psmode`) schaltet er direkt (`setOutlet`, psmode 0) oder stellt die Steckdose in der Konfiguration auf **manuell** (psmode 1 –
+die Automatik des GGS für diese Steckdose ist dann aus). Ein Konto ist nicht nötig, auch ein GGS ohne Sensoren funktioniert. Getestet mit Firmware 3.2 (Hardware S-ZC5-V2.5);
 neuere Firmware verschlüsselt anders.
 ```json
 "sensors": { "ggs": { "driver": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "uid": "123456", "prefix": "ggs_" } },

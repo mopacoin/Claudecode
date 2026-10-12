@@ -986,13 +986,30 @@ class Controller:
         with self.lock:
             rows = self._rows("24h")
             since = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
-            ev = [e for e in self.events if e["t"] >= since]
+            ev = self._events_since(since)
             labels = {p: self.sensor_labels.get(n, n) for n, (p, _s) in self.sensors.items() if p}
             extra = {"labels": labels, "dryback": self.steer.get("dryback") if self.cfg["steering"]["enabled"] else None,
                      "alarms": sum(e["kind"] == "alarm" and not e["msg"].startswith("Behoben") for e in ev),
                      "irrigations": sum(e["kind"] == "irrigation" for e in ev)}
             title, text, _ok = report.build(rows, self.cfg["climate"], self.cfg["light"], extra)
         return title, text
+
+    def _events_since(self, since):
+        """Ereignisse ab `since` aus data/events.jsonl (überdauert Neustarts, anders als die Liste im Speicher)."""
+        try:
+            with open(self._p("events.jsonl")) as f:
+                lines = f.readlines()[-5000:]
+        except OSError:
+            return [e for e in self.events if e["t"] >= since]
+        out = []
+        for line in lines:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("t", "") >= since:
+                out.append(e)
+        return out
 
     def _daily_report(self, now):
         rc = self.cfg["report"]

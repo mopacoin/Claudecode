@@ -207,6 +207,19 @@ class TestDailyReport(unittest.TestCase):
         from growcontroller import report
         self.assertFalse(report.build(self.rows(n=10, temp=lambda t: 25), self.CL, LIGHT)[2])
 
+    def test_counts_events_from_before_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctl = make(tmp)
+            ctl.event("alarm", "Gerät zuluft nicht erreichbar")
+            ctl.event("alarm", "Behoben: Gerät zuluft nicht erreichbar")
+            ctl.event("irrigation", "Bewässerung gestartet (5 s)")
+            again = make(tmp)                                            # Neustart: Liste im Speicher leer
+            ctl_rows = [{"t": (datetime.now() - timedelta(minutes=i)).isoformat(timespec="seconds"), "temp": 25.0}
+                        for i in range(120, 0, -1)]
+            again.minutes.extend(ctl_rows)
+            text = again.daily_report()[1]
+            self.assertIn("Alarme: 1 · Bewässerungen: 1", text)
+
     def test_sent_once_per_day_after_time(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctl = make(tmp)

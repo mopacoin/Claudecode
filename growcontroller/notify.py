@@ -13,7 +13,6 @@ import logging
 import queue
 import threading
 import time
-import urllib.parse
 import urllib.request
 
 log = logging.getLogger("grow.notify")
@@ -74,12 +73,14 @@ class Notifier:
 
     def _deliver(self, title, msg, prio):
         if self.ntfy:
-            url = self.ntfy.get("url", "https://ntfy.sh").rstrip("/") + "/" + urllib.parse.quote(self.ntfy["topic"])
-            # Kopfzeilen sind latin-1: Titel deshalb als RFC-2047-freie ASCII-Fassung, Text im Body (UTF-8)
-            headers = {"Title": title.encode("ascii", "replace").decode(), "Priority": prio, "Tags": "seedling"}
+            # JSON-Veröffentlichung: Titel und Text in UTF-8 (Kopfzeilen könnten keine Umlaute/Emoji)
+            url = self.ntfy.get("url", "https://ntfy.sh").rstrip("/")
+            body = {"topic": self.ntfy["topic"], "title": title, "message": msg, "tags": ["seedling"],
+                    "priority": {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}.get(prio, 3)}
+            headers = {"Content-Type": "application/json"}
             if self.ntfy.get("token"):
                 headers["Authorization"] = "Bearer " + self.ntfy["token"]
-            urllib.request.urlopen(urllib.request.Request(url, msg.encode(), headers), timeout=10).read()
+            urllib.request.urlopen(urllib.request.Request(url, json.dumps(body).encode(), headers), timeout=10).read()
         if self.telegram:
             url = f"https://api.telegram.org/bot{self.telegram['token']}/sendMessage"
             body = json.dumps({"chat_id": self.telegram["chat_id"], "text": f"{title}\n{msg}"}).encode()

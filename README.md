@@ -131,6 +131,9 @@ Alarme (und „Behoben“) gehen aufs Handy, gleiche Meldungen höchstens alle `
 Der Kanal ist öffentlich lesbar, wer den Namen kennt – daher einen langen Zufallsnamen nehmen.
 **Telegram:** `"telegram": {"token": "${TELEGRAM_TOKEN}", "chat_id": "123456789"}` (Bot über @BotFather anlegen).
 Test: System → Benachrichtigungen → „Test senden“ (`POST /api/notify/test`).
+**Tagesbericht** (System → Tagesbericht, Standard 08:00): für die letzten 24 Std der Anteil der Zeit, in dem VPD, Temperatur und
+Luftfeuchte im Zielbereich (Soll ± Hysterese, Tag/Nacht; im VPD-Modus ohne Feuchte) lagen – 🟢 ab 90 %, 🟡 ab 70 %, 🔴 darunter –
+mit Ø und Min/Max, Bodenwerten je Controller, Dryback (bei Crop Steering), Alarmen und Bewässerungen. Sofort: `POST /api/report/send`.
 
 ## Crop Steering (Bewässerung → Crop Steering)
 Gießt nach Bodenfeuchte statt nach Timer und ersetzt dann die Intervall-Bewässerung (Ausgang mit Rolle `pump`):

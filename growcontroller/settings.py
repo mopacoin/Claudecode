@@ -41,6 +41,7 @@ SPEC = {
         "shot_s": ("int", 1, 600), "gap_min": ("int", 1, 240), "p2_drop": ("num", 0.5, 50), "stop_min": ("int", 0, 720),
         "max_shots": ("int", 1, 200),
     },
+    "report": {"enabled": ("bool",), "time": ("time",)},  # Tagesbericht per Push
 }
 
 DEFAULTS = {
@@ -59,6 +60,7 @@ DEFAULTS = {
     "grow": {"stage": "", "start_date": ""},
     "steering": {"enabled": False, "sensor": "", "target": 30, "p1_delay_min": 60, "shot_s": 20, "gap_min": 20,
                  "p2_drop": 3, "stop_min": 120, "max_shots": 20},
+    "report": {"enabled": True, "time": "08:00"},
 }
 
 DEFAULT_CAL = [[0, 20], [90, 25], [180, 85]]  # Abluft-Servo: [Winkel, Watt] – Startwerte, per Lernpunkt verfeinern

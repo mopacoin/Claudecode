@@ -35,7 +35,8 @@ class TestNotify(unittest.TestCase):
         class H(BaseHTTPRequestHandler):
             def log_message(self, *a): pass
             def do_POST(self):
-                got.append((self.path, self.headers["Title"], self.rfile.read(int(self.headers["Content-Length"])).decode()))
+                b = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                got.append((self.path, b["topic"], b["title"], b["message"], b["priority"]))
                 self.send_response(200); self.send_header("Content-Length", "2"); self.end_headers(); self.wfile.write(b"{}")
 
         srv = HTTPServer(("127.0.0.1", 0), H)
@@ -47,7 +48,7 @@ class TestNotify(unittest.TestCase):
             if got: break
             time.sleep(0.05)
         srv.shutdown()
-        self.assertEqual(got[0], ("/grow-test", "Growcontroller", "Temperatur 33 °C über 32 °C"))
+        self.assertEqual(got[0], ("/", "grow-test", "Growcontroller", "Temperatur 33 °C über 32 °C", 4))
         self.assertEqual(n.channels(), ["ntfy"])
 
     def test_not_configured(self):
@@ -169,6 +170,55 @@ class TestSteering(unittest.TestCase):
             self.assertTrue(any("Crop Steering P1: Schuss 1 (20 s)" in e["msg"] for e in ctl.events))
             again = make(tmp)
             self.assertEqual((again.steer["shots"], again.steer["last_shot"]), (1, self.at(9)))
+
+
+class TestDailyReport(unittest.TestCase):
+    CL = {"control": "temp_hum", "temp_day": 25, "temp_night": 20, "temp_hyst": 1, "hum_day": 60, "hum_night": 55, "hum_hyst": 5,
+          "vpd_day": 1.0, "vpd_night": 0.9, "vpd_hyst": 0.1}
+
+    def rows(self, n=1440, **f):
+        start = datetime(2026, 10, 12, 8, 0)
+        return [{"t": (start + timedelta(minutes=i)).isoformat(), **{k: v(start + timedelta(minutes=i)) for k, v in f.items()}}
+                for i in range(n)]
+
+    def test_share_in_target_with_day_night(self):
+        from growcontroller import report
+        day = lambda t: rules.light_on(LIGHT, t)
+        rows = self.rows(temp=lambda t: 25.2 if day(t) else 20.5, hum=lambda t: 60 if day(t) else 70,
+                         vpd=lambda t: 1.05 if day(t) else 0.9, ggs_soil_hum=lambda t: 12.0, ggs_soil_ec=lambda t: 1.8)
+        title, text, ok = report.build(rows, self.CL, LIGHT, {"labels": {"ggs_": "GGS 1"}, "alarms": 2, "irrigations": 1})
+        self.assertFalse(ok)
+        self.assertIn("🟢 VPD: 100 % im Ziel", text)
+        self.assertIn("🟢 Temperatur: 100 % im Ziel", text)
+        self.assertIn("🟡 Luftfeuchte: 75 % im Ziel", text)   # nachts 6 h zu feucht -> 75 %
+        self.assertIn("🌱 GGS 1: Feuchte Ø 12,0 %", text)
+        self.assertIn("Alarme: 2 · Bewässerungen: 1", text)
+        self.assertEqual(title, "Grow-Tagesbericht: Luftfeuchte prüfen")
+
+    def test_all_green_and_vpd_mode_skips_humidity(self):
+        from growcontroller import report
+        rows = self.rows(temp=lambda t: 25.0 if rules.light_on(LIGHT, t) else 20.0, hum=lambda t: 99, vpd=lambda t: 1.0 if rules.light_on(LIGHT, t) else 0.9)
+        title, text, ok = report.build(rows, {**self.CL, "control": "vpd"}, LIGHT)
+        self.assertTrue(ok)
+        self.assertNotIn("Luftfeuchte", text.split("\n", 1)[1])
+        self.assertIn("alles im grünen Bereich", title)
+
+    def test_too_few_rows(self):
+        from growcontroller import report
+        self.assertFalse(report.build(self.rows(n=10, temp=lambda t: 25), self.CL, LIGHT)[2])
+
+    def test_sent_once_per_day_after_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctl = make(tmp)
+            sent = []
+            ctl.notifier.ntfy = {"topic": "x"}
+            ctl.notifier.send = lambda title, msg, prio="high": sent.append(title)
+            ctl._daily_report(datetime(2026, 10, 13, 7, 59))
+            self.assertEqual(sent, [])                                   # vor 08:00 nichts
+            ctl._daily_report(datetime(2026, 10, 13, 8, 0))
+            ctl._daily_report(datetime(2026, 10, 13, 8, 5))
+            self.assertEqual(len(sent), 1)                               # nur einmal
+            self.assertEqual(make(tmp).last_report, "2026-10-13")        # übersteht Neustart
 
 
 if __name__ == "__main__":

@@ -218,8 +218,9 @@ tr+tr td{border-top:1px solid var(--line)}
           <div class="card"><h3>System</h3><div id="sys"></div></div>
           <div class="card"><h3>Datenexport</h3><p class="hint">Verlauf als CSV, 1 Wert pro Minute.</p><div class="chips" id="exports"></div></div>
           <div class="card"><h3>Zugang</h3><p class="hint" id="authHint"></p><button class="sec" id="tokBtn">Token ändern</button></div>
-          <div class="card"><h3>Benachrichtigungen</h3><p class="hint" id="notifyHint"></p><button class="sec" id="notifyBtn">Test senden</button></div>
+          <div class="card"><h3>Benachrichtigungen</h3><p class="hint" id="notifyHint"></p><div class="row" style="gap:8px"><button class="sec" id="notifyBtn">Test senden</button><button class="sec" id="reportBtn">Bericht jetzt senden</button></div></div>
         </div>
+        <div id="f-report" class="card mt"></div>
         <div class="card mt"><h3>Hardware</h3><div style="overflow-x:auto"><table id="hw"></table></div></div>
         <div class="card mt"><div class="row"><h3 class="sp" style="margin:0">Ereignisprotokoll</h3><div class="chips" id="evChips"></div></div>
           <div style="overflow-x:auto;margin-top:10px"><table id="events"></table></div></div>
@@ -296,6 +297,9 @@ const FORMS = {
     {k: 'stop_min', l: 'P3: Gießstopp vor Licht aus (Dryback)', u: 'min', step: 5},
     {k: 'max_shots', l: 'Höchstens Schüsse pro Tag', step: 1}],
    hint: 'P0 warten nach Licht an → P1 in Schüssen bis zur Ziel-Feuchte → P2 halten → P3 vor Licht aus kein Wasser, damit das Substrat über Nacht abtrocknet (Dryback). Ohne gültige Bodenwerte wird aus Sicherheit nicht gegossen. Nutzt den Ausgang mit Rolle „Pumpe“.'},
+  report: {title: 'Tagesbericht', fields: [
+    {k: 'enabled', l: 'Täglich per Push senden', t: 'bool'}, {k: 'time', l: 'Uhrzeit', t: 'time'}],
+   hint: 'Zeigt für die letzten 24 Stunden, wie viel Prozent der Zeit VPD, Temperatur und Luftfeuchte im Zielbereich (Soll ± Hysterese, Tag/Nacht) lagen – mit Ø, Min/Max, Bodenwerten, Alarmen und Bewässerungen. 🟢 ab 90 %, 🟡 ab 70 %, 🔴 darunter.'},
   alarms: {title: 'Alarmgrenzen', fields: [
     {k: 'enabled', l: 'Alarme aktiv', t: 'bool'}, {k: 'temp_min', l: 'Temperatur min', u: '°C', step: .5}, {k: 'temp_max', l: 'Temperatur max', u: '°C', step: .5},
     {k: 'hum_min', l: 'Luftfeuchte min', u: '%', step: 1}, {k: 'hum_max', l: 'Luftfeuchte max', u: '%', step: 1}, {k: 'delay_min', l: 'Verzögerung bis Alarm', u: 'min', step: 1}],
@@ -961,8 +965,9 @@ function renderSystem() {
   $('#notifyHint').innerHTML = nt.channels?.length
     ? `Alarme gehen per <b style="color:var(--text)">${nt.channels.join(' + ')}</b> aufs Handy (${nt.sent} gesendet).${nt.error ? ` <span style="color:var(--bad)">Letzter Fehler: ${esc(nt.error)}</span>` : ''}`
     : 'Nicht eingerichtet – Abschnitt „notify“ in config.json (ntfy-Kanal oder Telegram-Bot), siehe README.';
-  $('#notifyBtn').style.display = nt.channels?.length ? '' : 'none';
+  $('#notifyBtn').style.display = $('#reportBtn').style.display = nt.channels?.length ? '' : 'none';
 }
+$('#reportBtn').onclick = async () => { try { await api('/api/report/send', {}); toast('Tagesbericht gesendet'); } catch (e) { toast(e.data?.error || e.message, 1); } };
 $('#notifyBtn').onclick = async () => { try { await api('/api/notify/test', {}); toast('Test gesendet – kommt gleich aufs Handy'); } catch (e) { toast(e.data?.error || e.message, 1); } };
 $('#exports').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-x="${r}">⬇ ${l}</button>`).join('');
 $('#exports').onclick = async e => {

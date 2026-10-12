@@ -9,7 +9,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timedelta
 
-from . import notify, outputs, rules, sensors, settings
+from . import notify, outputs, report, rules, sensors, settings
 
 log = logging.getLogger("grow")
 RANGES = {"1h": 1, "6h": 6, "24h": 24, "7d": 168}
@@ -96,6 +96,7 @@ class Controller:
         st = self._load_state()
         self.last_irrigation = st.get("last_irrigation")
         self.steer = st.get("steer", {})      # Crop-Steering-Tageszustand (Schüsse, Dryback …), übersteht Neustarts
+        self.last_report = st.get("last_report")  # Datum des letzten Tagesberichts
         self.steer_info = None
         self.lock = threading.RLock()
         self.stop_evt = threading.Event()
@@ -121,7 +122,7 @@ class Controller:
     def _save_state(self):
         li = self.last_irrigation.isoformat() if self.last_irrigation else None
         steer = {**self.steer, "last_shot": self.steer["last_shot"].isoformat() if self.steer.get("last_shot") else None}
-        settings.save(self._p("state.json"), {"last_irrigation": li, "steer": steer})
+        settings.save(self._p("state.json"), {"last_irrigation": li, "steer": steer, "last_report": self.last_report})
 
     def _load_history(self):
         cutoff = datetime.now() - timedelta(days=7)
@@ -308,6 +309,7 @@ class Controller:
             self._check_alarms()
             self._record(now)
             self._advance(now)
+            self._daily_report(now)
 
     def _apply_servo(self, o, want, day, ex_w):
         ex = self.cfg["exhaust"]
@@ -978,6 +980,30 @@ class Controller:
                 self._adv_block = None
                 self.event("settings", f"Zyklus angewendet: {p['label']}")
             return new, errors
+
+    def daily_report(self):
+        """(Titel, Text) für die letzten 24 Stunden."""
+        with self.lock:
+            rows = self._rows("24h")
+            since = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
+            ev = [e for e in self.events if e["t"] >= since]
+            labels = {p: self.sensor_labels.get(n, n) for n, (p, _s) in self.sensors.items() if p}
+            extra = {"labels": labels, "dryback": self.steer.get("dryback") if self.cfg["steering"]["enabled"] else None,
+                     "alarms": sum(e["kind"] == "alarm" and not e["msg"].startswith("Behoben") for e in ev),
+                     "irrigations": sum(e["kind"] == "irrigation" for e in ev)}
+            title, text, _ok = report.build(rows, self.cfg["climate"], self.cfg["light"], extra)
+        return title, text
+
+    def _daily_report(self, now):
+        rc = self.cfg["report"]
+        today = now.date().isoformat()
+        if not rc["enabled"] or not self.notifier.configured or self.last_report == today or now.strftime("%H:%M") < rc["time"]:
+            return
+        self.last_report = today
+        self._save_state()
+        title, text = self.daily_report()
+        self.notifier.send(title, text, "default")
+        self.event("system", "Tagesbericht gesendet")
 
     def _advance(self, now):
         """Wechselt automatisch zum Folge-Zyklus, wenn die Dauer des aktuellen abgelaufen ist."""

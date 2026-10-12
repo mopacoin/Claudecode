@@ -115,6 +115,9 @@ def make_handler(ctl, token):
                 except ValueError as e:
                     return self._send(400, {"error": str(e)})
                 return self._send(200, ctl.status())
+            if parts == ["api", "report", "send"]:  # Tagesbericht sofort senden
+                err = ctl.notifier.send_now(*ctl.daily_report())
+                return self._send(400, {"error": err}) if err else self._send(200, {"ok": True})
             if parts == ["api", "notify", "test"]:
                 err = ctl.notifier.send_now("Growcontroller", "Test-Benachrichtigung – kommt an ✓")
                 return self._send(400, {"error": err}) if err else self._send(200, {"ok": True})

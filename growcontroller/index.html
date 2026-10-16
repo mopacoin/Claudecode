@@ -43,7 +43,10 @@ main{padding:14px 28px 40px;max-width:1200px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--glow);backdrop-filter:blur(10px)}
 .card h3{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:12px;font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.09em}
 .grid{display:grid;gap:14px}.g3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}.g4{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
-.mt{margin-top:14px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.chips{display:flex;gap:6px;flex-wrap:wrap}
+.mt{margin-top:14px}
+.rampsvg{width:100%;height:auto;display:block;touch-action:none;user-select:none;margin:6px 0 4px}.rampsvg .pt{cursor:grab}.rampsvg .pt:active{cursor:grabbing}
+.rampsvg text{fill:var(--mute);font-size:12px}.rampsvg .lbl{fill:var(--text);font-size:12px;font-weight:600}
+.rampt{width:100%;border-collapse:collapse;margin:8px 0}.rampt td{padding:4px 2px}.rampt .ig{max-width:120px}.rampt input{width:100%}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.chips{display:flex;gap:6px;flex-wrap:wrap}
 .banner.info{background:linear-gradient(90deg,color-mix(in srgb,var(--warn) 22%,transparent),color-mix(in srgb,var(--warn) 6%,transparent));border-color:var(--warn)}
 .banner.info .ico{color:var(--warn);flex:none}
 .banner{display:flex;gap:12px;align-items:center;background:linear-gradient(90deg,color-mix(in srgb,var(--bad) 30%,transparent),color-mix(in srgb,var(--bad) 8%,transparent));border:1px solid var(--bad);border-radius:var(--r);padding:12px 16px;margin-bottom:14px}
@@ -202,7 +205,7 @@ tr+tr td{border-top:1px solid var(--line)}
       </section>
 
       <section class="tab" id="tab-climate"><div id="f-climate" class="card"></div><div id="f-exhaust" class="card mt"></div><div id="effCard" class="card mt" style="display:none"></div></section>
-      <section class="tab" id="tab-light"><div id="f-light" class="card"></div></section>
+      <section class="tab" id="tab-light"><div id="f-light" class="card"></div><div id="ramps" class="grid mt" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))"></div></section>
       <section class="tab" id="tab-irrigation"><div id="f-irrigation" class="card"></div>
         <div class="card mt" id="steerInfo" style="display:none"></div><div id="f-steering" class="card mt"></div></section>
       <section class="tab" id="tab-alarms">
@@ -283,9 +286,8 @@ const FORMS = {
    hint: 'Intelligente Schaltlogik: Statt fester Schwellen zählt der Wert in „Vorausschau“ Minuten (aus dem gemessenen Trend). Steigt die Feuchte schnell, geht der Entfeuchter früher an; fällt sie schon, bleibt er aus. Ist die Raumluft trocken genug, entfeuchtet zuerst die Abluft, wenn das weniger Strom kostet; die Temperatur wird mitgewichtet (zu warm → Abluft, zu kalt → Entfeuchter-Abwärme). Die Wirkung jedes Geräts lernt der Controller selbst (Übersicht → Klima-Logik). Leistungsaufnahme je Gerät optional als "power_w" in config.json. Im VPD-Modus rechnet der Controller das Ziel-VPD bei der aktuellen Temperatur in eine Feuchte-Vorgabe um. Der Blattversatz (meist −1 … −3 °C) gibt an, wie viel kühler die Blattoberfläche als die Luft ist.'},
   light: {title: 'Licht', fields: [
     {k: 'enabled', l: 'Lichtzeitplan aktiv', t: 'bool'}, {k: 'on', l: 'Licht an', t: 'time'}, {k: 'off', l: 'Licht aus', t: 'time'},
-    {k: 'sunrise_min', l: 'Sonnenaufgang nach Licht an', u: 'min', step: 5, dim: true},
-    {k: 'sunset_min', l: 'Sonnenuntergang vor Licht aus', u: 'min', step: 5, dim: true}],
-   hint: 'Licht-aus vor Licht-an läuft über Mitternacht. Der Tag/Nacht-Wechsel steuert auch die Klima-Sollwerte. Mit SANlight-Dimmern: Die Helligkeit stellst du je Lampe in der Übersicht ein; Sonnenaufgang/-untergang dimmt in dieser Zeit von 0 bis dorthin hoch bzw. wieder herunter (0 = aus).', photo: true},
+],
+   hint: 'Licht-aus vor Licht-an läuft über Mitternacht. Der Tag/Nacht-Wechsel steuert auch die Klima-Sollwerte. Mit SANlight-Dimmern: Die Helligkeit stellst du je Lampe in der Übersicht ein; Sonnenaufgang und -untergang legst du unten als Verlauf fest.', photo: true},
   irrigation: {title: 'Bewässerung', fields: [
     {k: 'enabled', l: 'Automatische Bewässerung', t: 'bool'}, {k: 'interval_min', l: 'Intervall', u: 'min', step: 1},
     {k: 'duration_s', l: 'Pumpendauer', u: 's', step: 1}, {k: 'from_hour', l: 'Erlaubt ab', u: 'Uhr', step: 1}, {k: 'to_hour', l: 'Erlaubt bis', u: 'Uhr', step: 1}]},
@@ -873,6 +875,7 @@ function buildForm(sec) {
   form.addEventListener('input', () => { form.dataset.dirty = '1'; });
   bindVis(form);
   form.querySelector('[data-reset]').onclick = () => buildForm(sec);  // verwirft ungespeicherte Änderungen
+  if (sec === 'light') renderRamps(true);
   form.querySelectorAll('[data-ph]').forEach(b => b.onclick = () => {
     const [h, m] = (form.elements.on.value || '06:00').split(':').map(Number); form.elements.off.value = hm(h * 60 + m + +b.dataset.ph * 60);
   });
@@ -888,6 +891,134 @@ function buildForm(sec) {
     }
   };
 }
+
+// ---- Sonnenaufgang / -untergang (Verlauf aus Punkten [Minuten, %]) ----
+const RAMP = {
+  sunrise: {t: 'Sonnenaufgang', ic: 'sun', c: 'var(--warn)', edge: 'Licht an', ax: 'min nach Licht an'},
+  sunset: {t: 'Sonnenuntergang', ic: 'moon', c: 'var(--vpd)', edge: 'Licht aus', ax: 'min vor Licht aus'}};
+const RAMP_TPL = [['off', 'Aus'], ['linear', 'Gleichmäßig'], ['soft', 'Sanft'], ['fast', 'Schnell hell'], ['slow', 'Langsam']];
+const rampTpl = (t, d) => {
+  const r = f => Math.max(1, Math.round(d * f));
+  return {off: [], linear: [[d, 100]], soft: [[r(.25), 8], [r(.5), 40], [r(.75), 82], [d, 100]],
+          fast: [[r(.15), 50], [r(.4), 85], [d, 100]], slow: [[r(.5), 20], [r(.8), 55], [d, 100]]}[t];
+};
+let RAMP_EDIT = null, RAMP_DIRTY = false;
+const RG = {l: 44, r: 16, t: 14, b: 34, W: 600, H: 250};   // Zeichenfläche des Graphen
+function rampDur(pts) { return pts.length ? pts[pts.length - 1][0] : 30; }
+function rampMax(d) { return [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 360, 480, 600].find(x => x >= d * 1.15) || 600; }
+function rampAt(pts, m) {
+  let pm = 0, pp = 0;
+  for (const [x, y] of pts) { if (m < x) return pp + (y - pp) * (m - pm) / (x - pm); pm = x; pp = y; }
+  return 100;
+}
+function renderRamps(force) {
+  const box = $('#ramps'); if (!box || !S || !CFG) return;
+  if (!hasDim()) { box.innerHTML = ''; return; }
+  if (RAMP_DIRTY && !force) return;  // ungespeicherte Bearbeitung behalten
+  RAMP_EDIT = {sunrise: JSON.parse(JSON.stringify(CFG.values.light.sunrise || [])),
+               sunset: JSON.parse(JSON.stringify(CFG.values.light.sunset || []))};
+  RAMP_DIRTY = false;
+  box.innerHTML = Object.keys(RAMP).map(k => `<div class="card" data-ramp="${k}"><h3>${ico(RAMP[k].ic)} ${RAMP[k].t}</h3>
+    <svg class="rampsvg" viewBox="0 0 ${RG.W} ${RG.H}" data-svg="${k}"></svg>
+    <div class="sub" data-sum="${k}"></div>
+    <div class="fld" style="margin-top:10px"><label>Vorlage</label><div class="chips">${RAMP_TPL.map(([t, l]) => `<button type="button" class="chip" data-tpl="${t}">${l}</button>`).join('')}</div></div>
+    <div class="fld"><label>Dauer bis ${k === 'sunrise' ? 'volle Helligkeit' : 'Licht aus'}</label><div class="ig" style="max-width:160px"><input type="number" min="1" max="600" step="1" data-dur><span>min</span></div></div>
+    <table class="rampt" data-tbl></table>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="sec" data-add>+ Punkt</button><span class="sp"></span>
+      <button type="button" class="sec" data-rreset>Zurücksetzen</button><button type="button" class="pri" data-rsave>Speichern</button></div></div>`).join('')
+    + `<p class="hint" style="grid-column:1/-1;margin:0">Punkte im Graphen ziehen oder Werte eintragen: „nach X min → Y %“. Die Prozent beziehen sich auf die Helligkeit der Lampe (Regler in der Übersicht). Zwischen den Punkten wird gleichmäßig gedimmt; der letzte Punkt ist immer 100 %.</p>`;
+  Object.keys(RAMP).forEach(k => drawRamp(k));
+}
+function drawRamp(k, fixedMax) {
+  const card = $(`[data-ramp="${k}"]`), svg = $(`[data-svg="${k}"]`), pts = RAMP_EDIT[k], R = RAMP[k];
+  const D = rampDur(pts), M = fixedMax || rampMax(D), w = RG.W - RG.l - RG.r, h = RG.H - RG.t - RG.b;
+  const X = m => RG.l + (k === 'sunrise' ? m : M - m) / M * w, Y = p => RG.t + (1 - p / 100) * h;
+  const curve = [];
+  for (let i = 0; i <= 60; i++) { const m = M * i / 60; curve.push([X(m), Y(pts.length ? rampAt(pts, m) : 100)]); }
+  pts.forEach(([m, p]) => curve.push([X(m), Y(p)]));
+  curve.sort((a, b) => a[0] - b[0]);
+  const line = curve.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
+  const area = `${line}L${RG.l + w},${RG.t + h}L${RG.l},${RG.t + h}Z`;
+  const ticks = [0, .25, .5, .75, 1].map(f => Math.round(M * f));
+  const sr = k === 'sunrise';
+  svg.innerHTML = `<defs><linearGradient id="rg-${k}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${R.c}" stop-opacity=".35"/><stop offset="1" stop-color="${R.c}" stop-opacity="0"/></linearGradient></defs>
+    ${[0, 25, 50, 75, 100].map(p => `<line x1="${RG.l}" x2="${RG.l + w}" y1="${Y(p)}" y2="${Y(p)}" stroke="var(--line)"/><text x="${RG.l - 8}" y="${Y(p) + 4}" text-anchor="end">${p}%</text>`).join('')}
+    ${ticks.map(m => `<text x="${X(m)}" y="${RG.H - 14}" text-anchor="middle">${m}</text>`).join('')}
+    <text x="${RG.l + w / 2}" y="${RG.H - 1}" text-anchor="middle">${R.ax}</text>
+    <line x1="${X(0)}" x2="${X(0)}" y1="${RG.t}" y2="${RG.t + h}" stroke="${R.c}" stroke-dasharray="4 4" opacity=".7"/>
+    <text class="lbl" x="${X(0) + (sr ? 6 : -6)}" y="${RG.t + 12}" text-anchor="${sr ? 'start' : 'end'}">${R.edge}</text>
+    <path d="${area}" fill="url(#rg-${k})"/><path d="${line}" fill="none" stroke="${R.c}" stroke-width="3" stroke-linejoin="round"/>
+    ${pts.map(([m, p], i) => `<g class="pt" data-i="${i}"><circle cx="${X(m)}" cy="${Y(p)}" r="16" fill="transparent"/><circle cx="${X(m)}" cy="${Y(p)}" r="7" fill="var(--bg)" stroke="${R.c}" stroke-width="3"/>
+      <text class="lbl" x="${X(m)}" y="${Y(p) + (p > 85 ? 26 : -14)}" text-anchor="middle">${m} min · ${Math.round(p)}%</text></g>`).join('')}`;
+  const dirty = RAMP_DIRTY ? ' · <b style="color:var(--warn)">nicht gespeichert</b>' : '';
+  $(`[data-sum="${k}"]`, card).innerHTML = pts.length
+    ? (sr ? `Volle Helligkeit <b style="color:var(--text)">${D} min</b> nach Licht an` : `Beginnt <b style="color:var(--text)">${D} min</b> vor Licht aus`) + ` · ${pts.length} Punkt${pts.length > 1 ? 'e' : ''}${dirty}`
+    : `Aus – das Licht ${sr ? 'geht sofort auf volle Helligkeit' : 'geht ohne Übergang aus'}${dirty}`;
+  const dur = $('[data-dur]', card);
+  dur.value = pts.length ? D : ''; dur.disabled = !pts.length;
+  $('[data-tbl]', card).innerHTML = pts.map(([m, p], i) => `<tr><td class="sub">${sr ? 'nach' : 'vor Aus'}</td>
+    <td><div class="ig"><input type="number" min="1" max="600" step="1" value="${m}" data-i="${i}" data-f="0"><span>min</span></div></td>
+    <td class="sub">→</td><td><div class="ig"><input type="number" min="0" max="100" step="1" value="${Math.round(p)}" data-i="${i}" data-f="1" ${i === pts.length - 1 ? 'disabled' : ''}><span>%</span></div></td>
+    <td><button type="button" class="chip" data-del="${i}" title="Punkt entfernen">✕</button></td></tr>`).join('');
+}
+function rampFix(pts) {  // Minuten streng steigend (1…600), Prozent 0…100, letzter Punkt 100 %
+  pts.forEach((q, i) => {
+    q[0] = Math.max(i ? pts[i - 1][0] + 1 : 1, Math.min(600, Math.round(q[0])));
+    q[1] = Math.max(0, Math.min(100, Math.round(q[1])));
+  });
+  if (pts.length) pts[pts.length - 1][1] = 100;
+  return pts;
+}
+function rampChanged(k, fixedMax) { RAMP_DIRTY = true; drawRamp(k, fixedMax); }
+$('#ramps').addEventListener('click', async e => {
+  const card = e.target.closest('[data-ramp]'), b = e.target.closest('button'); if (!card || !b) return;
+  const k = card.dataset.ramp, pts = RAMP_EDIT[k];
+  if (b.dataset.tpl) { RAMP_EDIT[k] = rampTpl(b.dataset.tpl, pts.length ? rampDur(pts) : 30); rampChanged(k); }
+  else if (b.dataset.del != null) { pts.splice(+b.dataset.del, 1); rampFix(pts); rampChanged(k); }
+  else if ('add' in b.dataset) {
+    if (!pts.length) RAMP_EDIT[k] = [[15, 50], [30, 100]];
+    else {
+      const a = pts.length > 1 ? pts[pts.length - 2] : [0, 0], z = pts[pts.length - 1];
+      if (z[0] - a[0] < 2) return toast('Kein Platz – erst die Dauer verlängern', 1);
+      pts.splice(pts.length - 1, 0, [Math.round((a[0] + z[0]) / 2), Math.round((a[1] + 100) / 2)]);
+    }
+    rampChanged(k);
+  } else if ('rreset' in b.dataset) renderRamps(true);
+  else if ('rsave' in b.dataset) {
+    try {
+      const r = await api('/api/settings', {light: {sunrise: rampFix(RAMP_EDIT.sunrise), sunset: rampFix(RAMP_EDIT.sunset)}});
+      CFG.values = r.values; RAMP_DIRTY = false; renderRamps(true); toast('Gespeichert ✓');
+      S = await api('/api/status'); renderAll();
+    } catch (err) { const er = err.data?.errors || {}; toast(er['light.sunrise'] || er['light.sunset'] || err.message, 1); }
+  }
+});
+$('#ramps').addEventListener('change', e => {
+  const card = e.target.closest('[data-ramp]'); if (!card) return;
+  const k = card.dataset.ramp, pts = RAMP_EDIT[k], el = e.target;
+  if ('dur' in el.dataset) {  // Dauer ändern: alle Punkte maßstäblich strecken
+    const d0 = rampDur(pts), d1 = Math.max(pts.length, Math.min(600, +el.value || d0));
+    pts.forEach(q => q[0] = q[0] * d1 / d0); pts[pts.length - 1][0] = d1;
+  } else if (el.dataset.i != null) pts[+el.dataset.i][+el.dataset.f] = +el.value;
+  else return;
+  rampFix(pts); rampChanged(k);
+});
+$('#ramps').addEventListener('pointerdown', e => {  // Punkt im Graphen ziehen
+  const g = e.target.closest('.pt'), svg = e.target.closest('svg'); if (!g || !svg) return;
+  const k = svg.dataset.svg, i = +g.dataset.i, pts = RAMP_EDIT[k], M = rampMax(rampDur(pts)), last = i === pts.length - 1;
+  const w = RG.W - RG.l - RG.r, h = RG.H - RG.t - RG.b;
+  e.preventDefault(); svg.setPointerCapture(e.pointerId);
+  const move = ev => {
+    const pt = svg.createSVGPoint(); pt.x = ev.clientX; pt.y = ev.clientY;
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    let m = (p.x - RG.l) / w * M; if (k === 'sunset') m = M - m;
+    const lo = i ? pts[i - 1][0] + 1 : 1, hi = last ? M : pts[i + 1][0] - 1;
+    pts[i][0] = Math.round(Math.max(lo, Math.min(hi, m)));
+    if (!last) pts[i][1] = Math.round(Math.max(0, Math.min(100, (1 - (p.y - RG.t) / h) * 100)));
+    rampChanged(k, M);
+  };
+  const up = () => { ['pointermove', 'pointerup', 'pointercancel'].forEach((t, j) => svg.removeEventListener(t, j ? up : move)); drawRamp(k); };
+  svg.addEventListener('pointermove', move); svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
+});
 
 // ---- Zyklen ----
 function presetSummary(p) {

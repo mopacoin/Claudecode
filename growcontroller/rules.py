@@ -14,10 +14,20 @@ def light_on(cfg, now):
     return on <= t < off if on < off else (t >= on or t < off)
 
 
+def curve_at(points, minutes):
+    """Verlauf [[Minuten, %], …] ab 0 % bei Minute 0, linear zwischen den Punkten, danach 100 %. -> 0…1"""
+    prev_m, prev_p = 0, 0.0
+    for m, p in points or []:
+        if minutes < m:
+            return (prev_p + (p - prev_p) * (minutes - prev_m) / (m - prev_m)) / 100
+        prev_m, prev_p = m, p
+    return 1.0
+
+
 def light_level(cfg, now):
-    """Anteil 0…100 % für dimmbares Licht: 100 % während des Tages, sanfter Anstieg in den ersten
-    `sunrise_min` Minuten nach Licht an und Abfall in den letzten `sunset_min` Minuten vor Licht aus.
-    Die Helligkeit selbst stellt der Regler je Lampe ein (Übersicht)."""
+    """Anteil 0…100 % für dimmbares Licht: 100 % während des Tages; nach Licht an folgt die Helligkeit
+    dem Verlauf `sunrise` (Minuten nach Licht an → %), vor Licht aus dem Verlauf `sunset`
+    (Minuten vor Licht aus → %). Die Helligkeit selbst stellt der Regler je Lampe ein (Übersicht)."""
     if not cfg.get("enabled", True) or not light_on(cfg, now):
         return 0.0
     on, off = _t(cfg["on"]), _t(cfg["off"])
@@ -26,13 +36,8 @@ def light_level(cfg, now):
     length = mins(on, off)
     since = (mins(on, t) % 1440) + t.second / 60  # Minuten seit Licht an
     left = length - since                            # Minuten bis Licht aus
-    f = 1.0
-    rise, fall = cfg.get("sunrise_min", 0), cfg.get("sunset_min", 0)
-    if rise and since < rise:
-        f = min(f, since / rise)
-    if fall and left < fall:
-        f = min(f, left / fall)
-    return round(max(0.0, f) * 100, 1)
+    f = min(curve_at(cfg.get("sunrise"), since), curve_at(cfg.get("sunset"), left))
+    return round(max(0.0, min(1.0, f)) * 100, 1)
 
 
 def hysteresis(value, current, low, high):

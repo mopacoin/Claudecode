@@ -74,7 +74,7 @@ class TestCrypto(unittest.TestCase):
 
 
 class TestLightLevel(unittest.TestCase):
-    CFG = {"enabled": True, "on": "13:00", "off": "07:00", "sunrise_min": 30, "sunset_min": 60}
+    CFG = {"enabled": True, "on": "13:00", "off": "07:00", "sunrise": [[30, 100]], "sunset": [[60, 100]]}
 
     def at(self, hh, mm):
         return rules.light_level(self.CFG, datetime(2026, 1, 1, hh, mm))
@@ -87,6 +87,28 @@ class TestLightLevel(unittest.TestCase):
         self.assertEqual(self.at(2, 0), 100)        # nach Mitternacht
         self.assertEqual(self.at(6, 30), 50)        # halber Sonnenuntergang
         self.assertEqual(self.at(7, 0), 0)
+
+    def test_curve_points(self):
+        # Sonnenaufgang schnell auf 50 %, dann langsam; Untergang: 30 min vor Aus 100 %, 10 min vor Aus 20 %
+        cfg = {**self.CFG, "sunrise": [[10, 50], [40, 100]], "sunset": [[10, 20], [30, 100]]}
+        at = lambda hh, mm: rules.light_level(cfg, datetime(2026, 1, 1, hh, mm))
+        self.assertEqual(at(13, 5), 25)             # schnell: nach 10 min schon 50 %
+        self.assertEqual(at(13, 10), 50)
+        self.assertEqual(at(13, 25), 75)            # dann langsamer bis 100 % nach 40 min
+        self.assertEqual(at(13, 40), 100)
+        self.assertEqual(at(6, 40), 60)             # 20 min vor Aus: zwischen 100 % und 20 %
+        self.assertEqual(at(6, 55), 10)
+        self.assertEqual(rules.curve_at([], 5), 1.0)
+
+    def test_curve_validation_and_migration(self):
+        from growcontroller import settings
+        ok, err = settings.validate({"light": {"sunrise": [[10, 30], [45, 100]], "sunset": []}})
+        self.assertFalse(err)
+        for bad in ([[10, 30]], [[20, 50], [10, 100]], [[0, 100]], [[700, 100]], [[10, 101]], "x", [[1, 2, 3]]):
+            _, err = settings.validate({"light": {"sunrise": bad}})
+            self.assertIn("light.sunrise", err, bad)
+        d = settings.migrate_light({"on": "06:00", "sunrise_min": 45, "sunset_min": 0})
+        self.assertEqual(d, {"on": "06:00", "sunrise": [[45, 100]]})
 
     def test_without_ramp_and_disabled(self):
         self.assertEqual(rules.light_level({"enabled": True, "on": "06:00", "off": "00:00"}, datetime(2026, 1, 1, 6, 0)), 100)
@@ -152,7 +174,7 @@ class TestController(unittest.TestCase):
             cfg = {"interval_s": 5, "sensors": {"air": {"driver": "sim"}},
                    "sanlight": {"net_key": "00" * 16, "app_key": "11" * 16},
                    "outputs": {"links": {"type": "sanlight", "address": "0x0003", "max": 51, "role": "light"}},
-                   "light": {"on": "13:00", "off": "07:00", "sunrise_min": 60},
+                   "light": {"on": "13:00", "off": "07:00", "sunrise": [[60, 100]]},
                    "climate": {}, "irrigation": {"enabled": False, "interval_min": 60, "duration_s": 5}}
             c = controller.Controller(cfg, d)
             self.assertTrue(get.call_args.kwargs["seq_file"].endswith("sanlight_seq.json"))

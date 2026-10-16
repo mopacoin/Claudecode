@@ -46,6 +46,8 @@ class Controller:
         self.started = time.time()
         self.notifier = notify.Notifier(cfg.get("notify"))
         self.saved = settings.load(self._p("settings.json"))
+        settings.migrate_light(self.saved.get("light", {}))
+        settings.migrate_light(cfg.get("light", {}))
         for sec, d in settings.DEFAULTS.items():  # Defaults < config.json < gespeicherte Einstellungen
             cfg[sec] = {**d, **cfg.get(sec, {}), **self.saved.get(sec, {})}
         # prefix: z. B. "room_" für einen Raum-Sensor, der nur angezeigt wird und nicht regelt

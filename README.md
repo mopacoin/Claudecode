@@ -121,8 +121,10 @@ neuere Firmware verschlüsselt anders.
 die Lampen nicht nur, er **dimmt** sie (`growcontroller/sanlight.py`, Protokoll aus der SANlight-Mesh-App 3.4.0 rekonstruiert,
 geprüft mit SLD V5 / Firmware 5; Pakete `bleak`, `cryptography`). Gesendet wird die Max-Helligkeit des Dimmers wie mit dem
 Schieberegler der App. Die Helligkeit stellt der Regler je Lampe in der Übersicht ein (Startwert `max` aus config.json).
-Im Licht-Tab: **Sonnenaufgang** (Minuten nach Licht an von 0 hochdimmen) und **Sonnenuntergang** (Minuten vor Licht aus
-herunterdimmen), 0 = aus. Die Gerätekarte zeigt die gesendete Helligkeit und
+Im Licht-Tab legst du **Sonnenaufgang** und **Sonnenuntergang** als Verlauf fest – je ein Graph mit ziehbaren Punkten
+„nach X min → Y %“ (Sonnenuntergang: „X min vor Licht aus → Y %“), Vorlagen (Gleichmäßig, Sanft, Schnell hell, Langsam),
+Dauer zum Strecken und Punkttabelle. Zwischen den Punkten wird gleichmäßig gedimmt, der letzte Punkt ist 100 %; leer = aus.
+Gespeichert als `light.sunrise` / `light.sunset` = `[[Minuten, Prozent], …]` (bis 12 Punkte, 1–600 min). Die Gerätekarte zeigt die gesendete Helligkeit und
 was der Dimmer meldet (Helligkeit, Dimmer-Uhr). Gerät „Ein“ = 100 %, „Aus“ = 0 %.
 In der **Übersicht** hat jede Lampe einen Schieberegler (0–100 %, wie in der SANlight-App): Er setzt die Helligkeit der Lampe
 bei Licht an (ersetzt `max`, bleibt nach Neustart in `data/settings.json`); nachts wird der Wert gespeichert und ab Licht an

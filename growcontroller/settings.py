@@ -18,8 +18,9 @@ SPEC = {
         "logic": ("enum", ["smart", "static"]), "lookahead_min": ("int", 0, 60), "dehum_wait_min": ("int", 0, 120),
     },
     "light": {"enabled": ("bool",), "on": ("time",), "off": ("time",),
-              # nur für dimmbares Licht (SANlight): sanfter Übergang; die Helligkeit regelt der Regler je Lampe
-              "sunrise_min": ("int", 0, 240), "sunset_min": ("int", 0, 240)},
+              # nur für dimmbares Licht (SANlight): Verlauf als Punkte [Minuten ab Licht an / vor Licht aus, %];
+              # die Helligkeit selbst regelt der Regler je Lampe
+              "sunrise": ("curve",), "sunset": ("curve",)},
     "irrigation": {
         "enabled": ("bool",), "interval_min": ("int", 1, 10080), "duration_s": ("int", 1, 600),
         "from_hour": ("int", 0, 24), "to_hour": ("int", 0, 24),
@@ -51,7 +52,7 @@ DEFAULTS = {
                 "hum_day": 60, "hum_night": 55, "hum_hyst": 5, "vpd_day": 1.0, "vpd_night": 0.9,
                 "vpd_hyst": 0.1, "leaf_offset": -2.0, "fan_min_per_hour": 5,
                 "logic": "smart", "lookahead_min": 10, "dehum_wait_min": 15},
-    "light": {"enabled": True, "on": "06:00", "off": "00:00", "sunrise_min": 0, "sunset_min": 0},
+    "light": {"enabled": True, "on": "06:00", "off": "00:00", "sunrise": [], "sunset": []},
     "irrigation": {"enabled": True, "interval_min": 720, "duration_s": 30, "from_hour": 6, "to_hour": 22},
     "alarms": {"enabled": True, "temp_min": 15, "temp_max": 32, "hum_min": 30, "hum_max": 80, "delay_min": 10},
     "exhaust": {"enabled": True, "min_w": 22, "max_w": 85, "max_w_night": 60, "temp_band": 3, "hum_band": 10, "deadband_deg": 3,
@@ -118,6 +119,8 @@ def _check(spec, v):
         return None if isinstance(v, str) and len(v) <= spec[1] else "Text zu lang"
     elif kind == "time":
         return None if isinstance(v, str) and _TIME.match(v) else "Format HH:MM"
+    elif kind == "curve":
+        return check_curve(v)
     elif kind == "date":
         if v == "":
             return None
@@ -126,6 +129,38 @@ def _check(spec, v):
         except (TypeError, ValueError):
             return "Format JJJJ-MM-TT"
     return None
+
+
+CURVE_MAX_POINTS = 12
+CURVE_MAX_MIN = 600
+
+
+def check_curve(v):
+    """Sonnenauf-/untergang: [] (aus) oder Punkte [[Minuten, %], …] mit steigenden Minuten (1…600);
+    der letzte Punkt ist das Ende des Übergangs und muss 100 % sein (ab dort volle Helligkeit)."""
+    if not isinstance(v, list) or len(v) > CURVE_MAX_POINTS:
+        return f"Liste mit höchstens {CURVE_MAX_POINTS} Punkten erwartet"
+    last = 0
+    for p in v:
+        if (not isinstance(p, list) or len(p) != 2 or _check(("int", 1, CURVE_MAX_MIN), p[0])
+                or _check(("num", 0, 100), p[1])):
+            return f"Punkt = [Minuten 1…{CURVE_MAX_MIN}, Prozent 0…100]"
+        if p[0] <= last:
+            return "Die Minuten müssen von Punkt zu Punkt steigen"
+        last = p[0]
+    if v and v[-1][1] != 100:
+        return "Der letzte Punkt muss 100 % sein"
+    return None
+
+
+def migrate_light(d):
+    """Alte Einstellung sunrise_min/sunset_min (gleichmäßige Rampe) in einen Verlauf umwandeln."""
+    for old, new in (("sunrise_min", "sunrise"), ("sunset_min", "sunset")):
+        if old in d:
+            m = d.pop(old)
+            if isinstance(m, int) and m > 0 and not d.get(new):
+                d[new] = [[min(m, CURVE_MAX_MIN), 100]]
+    return d
 
 
 def validate(patch):

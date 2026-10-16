@@ -120,9 +120,9 @@ neuere Firmware verschlüsselt anders.
 **SANlight-LED-Dimmer (SLD, Bluetooth Mesh):** Ausgangstyp `sanlight` mit Rolle `light` – der Licht-Zeitplan schaltet
 die Lampen nicht nur, er **dimmt** sie (`growcontroller/sanlight.py`, Protokoll aus der SANlight-Mesh-App 3.4.0 rekonstruiert,
 geprüft mit SLD V5 / Firmware 5; Pakete `bleak`, `cryptography`). Gesendet wird die Max-Helligkeit des Dimmers wie mit dem
-Schieberegler der App. Im Licht-Tab: **Helligkeit** (0–100 %), **Sonnenaufgang** (Minuten nach Licht an hochdimmen) und
-**Sonnenuntergang** (Minuten vor Licht aus herunterdimmen); Zyklen können eigene Helligkeiten tragen. `max` je Ausgang ist der
-Dimmerwert bei 100 % – so dimmen unterschiedlich starke Lampen gleichmäßig. Die Gerätekarte zeigt die gesendete Helligkeit und
+Schieberegler der App. Die Helligkeit stellt der Regler je Lampe in der Übersicht ein (Startwert `max` aus config.json).
+Im Licht-Tab: **Sonnenaufgang** (Minuten nach Licht an von 0 hochdimmen) und **Sonnenuntergang** (Minuten vor Licht aus
+herunterdimmen), 0 = aus. Die Gerätekarte zeigt die gesendete Helligkeit und
 was der Dimmer meldet (Helligkeit, Dimmer-Uhr). Gerät „Ein“ = 100 %, „Aus“ = 0 %.
 In der **Übersicht** hat jede Lampe einen Schieberegler (0–100 %, wie in der SANlight-App): Er setzt die Helligkeit der Lampe
 bei Licht an (ersetzt `max`, bleibt nach Neustart in `data/settings.json`); nachts wird der Wert gespeichert und ab Licht an

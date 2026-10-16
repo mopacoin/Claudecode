@@ -283,10 +283,9 @@ const FORMS = {
    hint: 'Intelligente Schaltlogik: Statt fester Schwellen zählt der Wert in „Vorausschau“ Minuten (aus dem gemessenen Trend). Steigt die Feuchte schnell, geht der Entfeuchter früher an; fällt sie schon, bleibt er aus. Ist die Raumluft trocken genug, entfeuchtet zuerst die Abluft, wenn das weniger Strom kostet; die Temperatur wird mitgewichtet (zu warm → Abluft, zu kalt → Entfeuchter-Abwärme). Die Wirkung jedes Geräts lernt der Controller selbst (Übersicht → Klima-Logik). Leistungsaufnahme je Gerät optional als "power_w" in config.json. Im VPD-Modus rechnet der Controller das Ziel-VPD bei der aktuellen Temperatur in eine Feuchte-Vorgabe um. Der Blattversatz (meist −1 … −3 °C) gibt an, wie viel kühler die Blattoberfläche als die Luft ist.'},
   light: {title: 'Licht', fields: [
     {k: 'enabled', l: 'Lichtzeitplan aktiv', t: 'bool'}, {k: 'on', l: 'Licht an', t: 'time'}, {k: 'off', l: 'Licht aus', t: 'time'},
-    {k: 'dim', l: 'Helligkeit (SANlight-Dimmer)', u: '%', step: 1, dim: true},
     {k: 'sunrise_min', l: 'Sonnenaufgang nach Licht an', u: 'min', step: 5, dim: true},
     {k: 'sunset_min', l: 'Sonnenuntergang vor Licht aus', u: 'min', step: 5, dim: true}],
-   hint: 'Licht-aus vor Licht-an läuft über Mitternacht. Der Tag/Nacht-Wechsel steuert auch die Klima-Sollwerte. Mit SANlight-Dimmern: Helligkeit gilt für alle Lampen (100 % = „max“ des Ausgangs in config.json); Sonnenauf-/untergang dimmt in dieser Zeit gleichmäßig hoch bzw. herunter.', photo: true},
+   hint: 'Licht-aus vor Licht-an läuft über Mitternacht. Der Tag/Nacht-Wechsel steuert auch die Klima-Sollwerte. Mit SANlight-Dimmern: Die Helligkeit stellst du je Lampe in der Übersicht ein; Sonnenaufgang/-untergang dimmt in dieser Zeit von 0 bis dorthin hoch bzw. wieder herunter (0 = aus).', photo: true},
   irrigation: {title: 'Bewässerung', fields: [
     {k: 'enabled', l: 'Automatische Bewässerung', t: 'bool'}, {k: 'interval_min', l: 'Intervall', u: 'min', step: 1},
     {k: 'duration_s', l: 'Pumpendauer', u: 's', step: 1}, {k: 'from_hour', l: 'Erlaubt ab', u: 'Uhr', step: 1}, {k: 'to_hour', l: 'Erlaubt bis', u: 'Uhr', step: 1}]},

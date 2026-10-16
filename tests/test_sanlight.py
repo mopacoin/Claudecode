@@ -74,7 +74,7 @@ class TestCrypto(unittest.TestCase):
 
 
 class TestLightLevel(unittest.TestCase):
-    CFG = {"enabled": True, "on": "13:00", "off": "07:00", "dim": 80, "sunrise_min": 30, "sunset_min": 60}
+    CFG = {"enabled": True, "on": "13:00", "off": "07:00", "sunrise_min": 30, "sunset_min": 60}
 
     def at(self, hh, mm):
         return rules.light_level(self.CFG, datetime(2026, 1, 1, hh, mm))
@@ -82,10 +82,10 @@ class TestLightLevel(unittest.TestCase):
     def test_ramp_over_midnight(self):
         self.assertEqual(self.at(12, 59), 0)
         self.assertEqual(self.at(13, 0), 0)
-        self.assertEqual(self.at(13, 15), 40)       # halber Sonnenaufgang
-        self.assertEqual(self.at(18, 0), 80)
-        self.assertEqual(self.at(2, 0), 80)         # nach Mitternacht
-        self.assertEqual(self.at(6, 30), 40)        # halber Sonnenuntergang
+        self.assertEqual(self.at(13, 15), 50)       # halber Sonnenaufgang
+        self.assertEqual(self.at(18, 0), 100)
+        self.assertEqual(self.at(2, 0), 100)        # nach Mitternacht
+        self.assertEqual(self.at(6, 30), 50)        # halber Sonnenuntergang
         self.assertEqual(self.at(7, 0), 0)
 
     def test_without_ramp_and_disabled(self):
@@ -152,7 +152,7 @@ class TestController(unittest.TestCase):
             cfg = {"interval_s": 5, "sensors": {"air": {"driver": "sim"}},
                    "sanlight": {"net_key": "00" * 16, "app_key": "11" * 16},
                    "outputs": {"links": {"type": "sanlight", "address": "0x0003", "max": 51, "role": "light"}},
-                   "light": {"on": "13:00", "off": "07:00", "dim": 100, "sunrise_min": 60},
+                   "light": {"on": "13:00", "off": "07:00", "sunrise_min": 60},
                    "climate": {}, "irrigation": {"enabled": False, "interval_min": 60, "duration_s": 5}}
             c = controller.Controller(cfg, d)
             self.assertTrue(get.call_args.kwargs["seq_file"].endswith("sanlight_seq.json"))

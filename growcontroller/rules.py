@@ -15,8 +15,9 @@ def light_on(cfg, now):
 
 
 def light_level(cfg, now):
-    """Helligkeit 0…100 % für dimmbares Licht: `dim` während des Tages, sanfter Anstieg in den ersten
-    `sunrise_min` Minuten nach Licht an und Abfall in den letzten `sunset_min` Minuten vor Licht aus."""
+    """Anteil 0…100 % für dimmbares Licht: 100 % während des Tages, sanfter Anstieg in den ersten
+    `sunrise_min` Minuten nach Licht an und Abfall in den letzten `sunset_min` Minuten vor Licht aus.
+    Die Helligkeit selbst stellt der Regler je Lampe ein (Übersicht)."""
     if not cfg.get("enabled", True) or not light_on(cfg, now):
         return 0.0
     on, off = _t(cfg["on"]), _t(cfg["off"])
@@ -31,7 +32,7 @@ def light_level(cfg, now):
         f = min(f, since / rise)
     if fall and left < fall:
         f = min(f, left / fall)
-    return round(max(0.0, f) * cfg.get("dim", 100), 1)
+    return round(max(0.0, f) * 100, 1)
 
 
 def hysteresis(value, current, low, high):

@@ -52,7 +52,7 @@ class Output:
         self._cmd = None
         self.known = not self.manual  # manual: erst bekannt, wenn das Gerät meldet oder von Hand geschaltet wurde
         self.dimmable = hasattr(backend, "level")  # SANlight-Dimmer: Helligkeit in % statt Ein/Aus
-        self.level = None
+        self.level = self._out = None
         if not proportional and not self.manual and getattr(backend, "initial", True):
             backend.set(False)
 
@@ -104,16 +104,19 @@ class Output:
 
     def apply_dim(self, pct):
         """Dimmbares Licht: `pct` = Helligkeit laut Zeitplan (0…100). Ein = 100 %, Aus = 0 %.
-        Gesendet wird nur bei einer Änderung um mindestens 1 %."""
+        Gesendet wird nur, wenn sich die tatsächliche Leistung ändert (unter der Mindestleistung = aus)."""
         if self.mode in ("on", "off"):
             pct = 100 if self.mode == "on" else 0
         pct = int(round(max(0, min(100, pct))))
         self.known = True
         if pct != self.level:
-            if (pct > 0) != self.state:
+            out = self.backend.level(pct)
+            if (out > 0) != self.state:
                 self.changed = time.monotonic()
-            self.level, self.state = pct, pct > 0
-            self.backend.set(pct)
+            self.level, self.state = pct, out > 0
+            if out != self._out:
+                self._out = out
+                self.backend.set(pct)
 
     def shutdown(self):
         if self.manual or getattr(self.backend, "keep_on_shutdown", False):

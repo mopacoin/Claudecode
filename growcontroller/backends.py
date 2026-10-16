@@ -227,20 +227,22 @@ class SpiderFarmerBackend(WorkerBackend):
 class SanlightBackend(WorkerBackend):
     """SANlight-LED-Dimmer per Bluetooth Mesh. set(True/False) oder Helligkeit 0…100 %.
     Gesendet wird die Max-Helligkeit des Dimmers; `max` (Standard 100) ist die Helligkeit bei 100 %,
-    damit unterschiedlich starke Lampen gleichmäßig dimmen. Ist kein Dimmer erreichbar, während er
+    damit unterschiedlich starke Lampen gleichmäßig dimmen. Unter `min_pct` (Standard 20 %) tatsächlicher
+    Leistung geht die Lampe ganz aus statt zu glimmen. Ist kein Dimmer erreichbar, während er
     dunkel sein soll, gilt das nicht als Fehler – die Lampen hängen oft stromlos am Licht-Relais."""
     keep_on_shutdown = True   # Beenden/Neustart des Dienstes lässt die Lampen, wie sie sind
     initial = False           # beim Start nicht erst auf 0 setzen (kein Flackern beim Neustart)
 
-    def __init__(self, link, address, max=100, **kw):
-        self.link, self.address, self.max = link, int(str(address), 0), float(max)
+    def __init__(self, link, address, max=100, min_pct=20, **kw):
+        self.link, self.address, self.max, self.min_pct = link, int(str(address), 0), float(max), float(min_pct)
         link.register(self.address)
         super().__init__(**{k: v for k, v in kw.items() if k in ("resend_s", "retry_s")} or {"resend_s": 300})
 
     def level(self, v):
         """Bool/Prozent der Regel -> Prozent für den Dimmer."""
         pct = (100.0 if v else 0.0) if isinstance(v, bool) else float(v)
-        return int(round(max(0.0, min(100.0, pct)) * self.max / 100))
+        out = int(round(max(0.0, min(100.0, pct)) * self.max / 100))
+        return out if out >= self.min_pct else 0   # zu wenig Leistung -> ganz aus
 
     def _send(self, v):
         from .sanlight import Unreachable

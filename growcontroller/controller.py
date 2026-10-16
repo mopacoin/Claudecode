@@ -1116,7 +1116,7 @@ class Controller:
             o.backend.max = float(round(pct))
             self.saved.setdefault("dim_levels", {})[name] = o.backend.max
             settings.save(self._p("settings.json"), self.saved)
-            o.level = None  # sofort neu senden
+            o.level = o._out = None  # sofort neu senden
             o.apply_dim(rules.light_level(self.cfg["light"], datetime.now()))
             self.event("output", f"{name}: Helligkeit {round(pct)} %")
 
@@ -1124,7 +1124,9 @@ class Controller:
         """Für das Dashboard: gesendete Helligkeit und Status, den der SANlight-Dimmer meldet."""
         if not o.dimmable:
             return None
-        return {"level": o.level, "max": o.backend.max, "dimmer": o.backend.link.info(o.backend.address)}
+        b = o.backend
+        return {"level": o.level, "max": b.max, "min": b.min_pct, "actual": b.level(o.level or 0),
+                "dimmer": b.link.info(b.address)}
 
     def _ggs_info(self, o):
         """Für das Dashboard: aktueller GGS-Modus und gespeicherte Einstellungen einer Spider-Farmer-Steckdose."""

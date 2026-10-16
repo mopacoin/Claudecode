@@ -139,12 +139,27 @@ class TestBackend(unittest.TestCase):
         link = FakeLink()
         be = backends.SanlightBackend(link, "0x0003", max=51, retry_s=0.05)
         self.assertEqual((be.level(True), be.level(50), be.level(False)), (51, 26, 0))
+        self.assertEqual((be.level(38), be.level(39)), (0, 20))   # 38 % von 51 = 19 % -> unter 20 % aus
         be._send(50)
         self.assertEqual(link.levels, [(3, 26)])
         link.reachable = False
         be._send(0)                                   # stromlos und soll dunkel sein -> kein Fehler
         with self.assertRaises(sl.Unreachable):
             be._send(100)
+        be.close()
+
+    def test_minimum_output_during_sunrise(self):
+        be = backends.SanlightBackend(FakeLink(), 3, max=60, retry_s=0.05)
+        sent = []
+        be.set = lambda v: sent.append(be.level(v))
+        o = outputs.Output("lampe", be, role="light")
+        o.apply_dim(10); o.apply_dim(25); o.apply_dim(30)   # 6 %, 15 %, 18 % tatsächlich: aus
+        self.assertFalse(o.state)
+        o.apply_dim(34)                                     # 20.4 % -> an mit 20 %
+        self.assertTrue(o.state)
+        o.apply_dim(10)                                     # Sonnenuntergang: unter 20 % -> aus
+        self.assertFalse(o.state)
+        self.assertEqual(sent, [0, 20, 0])                  # 0 nicht bei jedem Prozent erneut
         be.close()
 
     def test_output_dim_modes_and_shutdown(self):

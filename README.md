@@ -124,7 +124,10 @@ Schieberegler der App. Die Helligkeit stellt der Regler je Lampe in der Übersic
 Im Licht-Tab legst du **Sonnenaufgang** und **Sonnenuntergang** als Verlauf fest – je ein Graph mit ziehbaren Punkten
 „nach X min → Y %“ (Sonnenuntergang: „X min vor Licht aus → Y %“), Vorlagen (Gleichmäßig, Sanft, Schnell hell, Langsam),
 Dauer zum Strecken und Punkttabelle. Zwischen den Punkten wird gleichmäßig gedimmt, der letzte Punkt ist 100 %; leer = aus.
-Gespeichert als `light.sunrise` / `light.sunset` = `[[Minuten, Prozent], …]` (bis 12 Punkte, 1–600 min). Die Gerätekarte zeigt die gesendete Helligkeit und
+Gespeichert als `light.sunrise` / `light.sunset` = `[[Minuten, Prozent], …]` (bis 12 Punkte, 1–600 min).
+Die Prozent im Verlauf beziehen sich auf den Reglerwert der Lampe (100 % = Reglerwert). **Mindestleistung:** Liegt die tatsächliche
+Leistung (Verlauf × Regler) unter 20 %, geht die Lampe ganz aus statt zu glimmen; beim Sonnenaufgang geht sie erst an, wenn
+der Verlauf 20 % erreicht. Je Ausgang einstellbar mit `"min_pct"` (Standard 20, 0 = aus). Die Gerätekarte zeigt die gesendete Helligkeit und
 was der Dimmer meldet (Helligkeit, Dimmer-Uhr). Gerät „Ein“ = 100 %, „Aus“ = 0 %.
 In der **Übersicht** hat jede Lampe einen Schieberegler (0–100 %, wie in der SANlight-App): Er setzt die Helligkeit der Lampe
 bei Licht an (ersetzt `max`, bleibt nach Neustart in `data/settings.json`); nachts wird der Wert gespeichert und ab Licht an

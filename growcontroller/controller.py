@@ -69,6 +69,9 @@ class Controller:
             if n in self.outs and self.outs[n].info.get("type") == "spiderfarmer" and r in GGS_ROLES + (outputs.MANUAL,):
                 self.outs[n].role = r
         self.has_dehum = any(o.role == "dehumidifier" for o in self.outs.values())
+        for n, pct in self.saved.get("dim_levels", {}).items():  # Helligkeit je Lampe (Schieberegler)
+            if n in self.outs and self.outs[n].dimmable and isinstance(pct, (int, float)) and 0 <= pct <= 100:
+                self.outs[n].backend.max = float(pct)
         for n, m in self.saved.get("modes", {}).items():
             if n in self.outs and m in ("auto", "on", "off"):
                 self.outs[n].mode = m
@@ -1100,6 +1103,20 @@ class Controller:
             settings.save(self._p("settings.json"), self.saved)
             self.rev += 1
             self.event("mode", f"{name}: GGS-Modus {mode}" + (f" ({role})" if mode == "grow" else ""))
+
+    def set_dim(self, name, pct):
+        """Helligkeit einer Lampe in % (wie der Regler der SANlight-App). Gilt, solange das Licht an ist;
+        Sonnenauf-/untergang und die Licht-Helligkeit skalieren darauf. Wirft ValueError."""
+        o = self.outs.get(name)
+        if not o or not o.dimmable or isinstance(pct, bool) or not isinstance(pct, (int, float)) or not 0 <= pct <= 100:
+            raise ValueError("Lampe und Helligkeit 0…100 % erforderlich")
+        with self.lock:
+            o.backend.max = float(round(pct))
+            self.saved.setdefault("dim_levels", {})[name] = o.backend.max
+            settings.save(self._p("settings.json"), self.saved)
+            o.level = None  # sofort neu senden
+            o.apply_dim(rules.light_level(self.cfg["light"], datetime.now()))
+            self.event("output", f"{name}: Helligkeit {round(pct)} %")
 
     def _dim_info(self, o):
         """Für das Dashboard: gesendete Helligkeit und Status, den der SANlight-Dimmer meldet."""

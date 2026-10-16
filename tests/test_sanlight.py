@@ -1,7 +1,9 @@
 """SANlight-Dimmer: Mesh-Krypto gegen Testvektoren der Mesh-Profile-Spec, Loopback, Dimmen im Controller."""
 import asyncio
+import json
 import os
 import tempfile
+import time
 import unittest
 from datetime import datetime
 from unittest import mock
@@ -163,6 +165,29 @@ class TestController(unittest.TestCase):
             c.step(datetime(2026, 1, 1, 8, 0))
             self.assertEqual(o.level, 0)
             c.shutdown()
+
+    def test_lamp_slider(self):
+        link = FakeLink()
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(sl.SanlightLink, "get", return_value=link):
+            cfg = {"interval_s": 5, "sensors": {"air": {"driver": "sim"}},
+                   "sanlight": {"net_key": "00" * 16, "app_key": "11" * 16},
+                   "outputs": {"links": {"type": "sanlight", "address": "0x0003", "max": 51, "role": "light"}},
+                   "light": {"on": "00:00", "off": "00:00"},
+                   "climate": {}, "irrigation": {"enabled": False, "interval_min": 60, "duration_s": 5}}
+            c = controller.Controller(cfg, d)
+            c.set_dim("links", 65)
+            time.sleep(0.3)                            # Worker-Thread sendet
+            self.assertEqual(link.levels[-1], (3, 65))  # sofort gesendet, Licht ist an
+            self.assertEqual(c.status()["outputs"]["links"]["dim"]["max"], 65)
+            for bad in (101, -1, True, "x", None):
+                with self.assertRaises(ValueError):
+                    c.set_dim("links", bad)
+            with self.assertRaises(ValueError):
+                c.set_dim("nope", 50)
+            c.shutdown()
+            c2 = controller.Controller(json.loads(json.dumps(cfg)), d)   # Neustart: Wert bleibt
+            self.assertEqual(c2.outs["links"].backend.max, 65)
+            c2.shutdown()
 
 
 if __name__ == "__main__":

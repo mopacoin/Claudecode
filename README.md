@@ -124,6 +124,9 @@ Schieberegler der App. Im Licht-Tab: **Helligkeit** (0–100 %), **Sonnenaufgang
 **Sonnenuntergang** (Minuten vor Licht aus herunterdimmen); Zyklen können eigene Helligkeiten tragen. `max` je Ausgang ist der
 Dimmerwert bei 100 % – so dimmen unterschiedlich starke Lampen gleichmäßig. Die Gerätekarte zeigt die gesendete Helligkeit und
 was der Dimmer meldet (Helligkeit, Dimmer-Uhr). Gerät „Ein“ = 100 %, „Aus“ = 0 %.
+In der **Übersicht** hat jede Lampe einen Schieberegler (0–100 %, wie in der SANlight-App): Er setzt die Helligkeit der Lampe
+bei Licht an (ersetzt `max`, bleibt nach Neustart in `data/settings.json`); nachts wird der Wert gespeichert und ab Licht an
+verwendet. API: `POST /api/dim/<ausgang>` mit `{"pct": 60}`.
 NetKey/AppKey stammen aus dem Mesh-Export der SANlight-App (`SANlightMesh.json`, Einstellungen → „Export mesh“). `src_address`
 muss eine im Mesh **freie** Unicast-Adresse sein, die kein anderes Programm benutzt (Standard `0x0011`); die Sequenznummer liegt
 in `data/sanlight_seq.json` – nicht löschen, sonst verwerfen die Dimmer die Befehle. Den IV-Index liest der Controller aus dem

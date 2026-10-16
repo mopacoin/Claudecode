@@ -177,6 +177,7 @@ tr+tr td{border-top:1px solid var(--line)}
         <div class="grid g3" id="tiles"></div>
         <div class="grid g3 mt">
           <div class="card" id="lightCard"></div>
+          <div class="card" id="lampCard" style="display:none"></div>
           <div class="card"><h3>VPD-Bereich</h3><div class="zone"><i id="zmark"></i></div>
             <div class="scale"><span>0</span><span>0,4</span><span>0,8</span><span>1,2</span><span>1,6</span><span>2,0 kPa</span></div>
             <div class="scale" style="margin-top:6px"><span></span><span>Keimling</span><span>Wachstum</span><span>Blüte</span><span>Spätblüte</span><span></span></div></div>
@@ -459,6 +460,29 @@ function renderLight() {
     <div class="scale"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div>
     ${l.enabled ? `<div class="sub" style="margin-top:10px">${isOn ? 'Licht aus um ' + l.off : 'Licht an um ' + l.on} · in ${Math.floor(mins / 60)} h ${mins % 60} min</div>` : ''}`;
 }
+let LAMP_BUSY = 0;  // Regler wird gerade bewegt: nicht neu zeichnen
+function lampName(n) { return LABEL[n] || n.replace(/^lampe_/, '').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()); }
+function renderLamps() {
+  const L = Object.entries(S.outputs).filter(([, o]) => o.dim), card = $('#lampCard');
+  card.style.display = L.length ? '' : 'none';
+  if (!L.length || Date.now() < LAMP_BUSY) return;
+  card.innerHTML = `<h3>${ico('sun')} Lampen</h3>` + L.map(([n, o]) => {
+    const d = o.dim, rep = d.dimmer, now = lampNow(o);
+    return `<div style="margin-top:12px"><div class="row"><b>${esc(lampName(n))}</b><span class="sp"></span><b style="font-size:20px" data-lv="${esc(n)}">${Math.round(d.max)} %</b></div>
+      <input type="range" min="0" max="100" step="1" value="${Math.round(d.max)}" data-lamp="${esc(n)}" aria-label="Helligkeit ${esc(lampName(n))}">
+      <div class="sub">${o.ok === false ? '<span style="color:var(--bad)">nicht erreichbar</span>' : rep ? `Dimmer meldet <b style="color:var(--text)">${rep.brightness} %</b>` : S.is_day ? 'kein Status vom Dimmer' : 'Nacht – Dimmer aus'}${o.mode !== 'auto' ? ` · Modus ${o.mode === 'on' ? 'Ein' : 'Aus'}` : d.level != null && d.level < 100 && S.is_day ? ` · jetzt ${now} % (Sonnenauf-/untergang)` : ''}</div></div>`;
+  }).join('') + `<p class="hint" style="margin:10px 0 0">Wie der Regler der SANlight-App. Gilt, solange das Licht an ist${S.is_day ? '' : ' – nachts wird der Wert gespeichert und ab Licht an verwendet'}.</p>`;
+}
+$('#lampCard').addEventListener('input', e => {
+  const r = e.target.closest('input[data-lamp]'); if (!r) return;
+  LAMP_BUSY = Date.now() + 5000;
+  $('#lampCard').querySelector(`[data-lv="${CSS.escape(r.dataset.lamp)}"]`).textContent = r.value + ' %';
+});
+$('#lampCard').addEventListener('change', async e => {
+  const r = e.target.closest('input[data-lamp]'); if (!r) return;
+  try { S = await api('/api/dim/' + encodeURIComponent(r.dataset.lamp), {pct: +r.value}); LAMP_BUSY = 0; renderAll(); toast(`${lampName(r.dataset.lamp)}: ${r.value} %`); }
+  catch (err) { LAMP_BUSY = 0; toast(err.data?.error || err.message, 1); }
+});
 function renderIrrMini() {
   const i = S.irrigation, f = t => t ? t.replace('T', ' ').slice(5, 16) : '–';
   const st = !i.available ? 'Keine Pumpe' : i.running ? 'läuft …' : i.pump_mode === 'off' ? 'Pumpe aus' : !i.enabled ? 'Automatik aus' : 'Bereit';
@@ -571,9 +595,10 @@ function exShare(w) {
   const ex = CFG.values.exhaust, top = S.is_day ? ex.max_w : ex.max_w_night;
   return w == null || top <= ex.min_w ? 0 : Math.max(0, Math.min(1, (w - ex.min_w) / (top - ex.min_w)));
 }
+function lampNow(o) { return o.dim?.level ? Math.round(o.dim.level * o.dim.max / 100) : 0; }
 function hasDim() { return !!S && Object.values(S.outputs).some(o => o.dim); }
 function stateText(o) {
-  if (o.dim) return o.state ? `${o.dim.level} %` : 'Aus';
+  if (o.dim) return o.state ? `${lampNow(o)} %` : 'Aus';
   if (!o.proportional) return o.state ? 'Läuft' : 'Aus';
   if (o.mode === 'manual') return '<span style="color:var(--warn)">Kalibrier-Test</span>';
   if (o.watts == null) return '–';
@@ -648,8 +673,8 @@ function renderDevices() {
       <div class="sp"><div class="nm">${esc(LABEL[n] || n)}</div><div class="st">${bad ? '<span style="color:var(--bad)">nicht erreichbar</span>' : stateText(o)} · ${esc(o.info.type)}</div></div></div>
       ${o.proportional && o.watts != null ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${Math.round(o.watts)} W</b><span class="sub">${o.angle}° Servo · ${Math.round(exShare(o.watts) * 100)} % Leistung${S.exhaust?.measured_w != null ? ` · gemessen ${S.exhaust.measured_w.toFixed(1)} W` : ''}</span></div>
         <div class="lvl"><i style="width:${exShare(o.watts) * 100}%"></i></div>` : ''}
-      ${o.dim ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${o.dim.level ?? '–'} %</b><span class="sub">${o.dim.dimmer ? `Dimmer meldet ${o.dim.dimmer.brightness} % · Uhr ${esc(o.dim.dimmer.uptime)}` : 'kein Status vom Dimmer'}</span></div>
-        <div class="lvl"><i style="width:${o.dim.level || 0}%"></i></div>` : ''}
+      ${o.dim ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${lampNow(o)} %</b><span class="sub">${o.dim.dimmer ? `Dimmer meldet ${o.dim.dimmer.brightness} % · Uhr ${esc(o.dim.dimmer.uptime)}` : 'kein Status vom Dimmer'}</span></div>
+        <div class="lvl"><i style="width:${lampNow(o)}%"></i></div>` : ''}
       <div class="info">${esc(info)}</div>
       ${o.ggs ? `<div class="sub" style="margin:8px 0">${ggsSummary(o)}</div>
         <div class="row ggsq" style="gap:8px">${o.role === 'manual' ? `<button data-gq="on" data-n="${esc(n)}" class="${o.mode === 'on' ? 'pri' : 'sec'}">Ein</button><button data-gq="off" data-n="${esc(n)}" class="${o.mode === 'off' ? 'pri' : 'sec'}">Aus</button>` : ''}
@@ -987,7 +1012,7 @@ $('#tokBtn').onclick = () => { const t = prompt('Neues Token (leer = löschen):'
 // ---- Hauptschleife ----
 let built = false;
 function renderAll(rebuild) {
-  renderHeader(); renderOverview(); renderDevices(); renderAlarms(); renderSystem(); renderPresets(); renderEffect(); renderSmart(); renderSteer();
+  renderHeader(); renderOverview(); renderLamps(); renderDevices(); renderAlarms(); renderSystem(); renderPresets(); renderEffect(); renderSmart(); renderSteer();
   if (!built || rebuild) { Object.keys(FORMS).forEach(buildForm); built = true; }
 }
 async function poll() {

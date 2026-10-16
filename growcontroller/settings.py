@@ -136,15 +136,16 @@ CURVE_MAX_MIN = 600
 
 
 def check_curve(v):
-    """Sonnenauf-/untergang: [] (aus) oder Punkte [[Minuten, %], …] mit steigenden Minuten (1…600);
-    der letzte Punkt ist das Ende des Übergangs und muss 100 % sein (ab dort volle Helligkeit)."""
+    """Sonnenauf-/untergang: [] (aus) oder Punkte [[Minuten, %], …] mit steigenden Minuten (0…600);
+    ein Punkt bei Minute 0 ist der Startwert (sonst 0 %). Der letzte Punkt ist das Ende des Übergangs
+    und muss 100 % sein (ab dort volle Helligkeit)."""
     if not isinstance(v, list) or len(v) > CURVE_MAX_POINTS:
         return f"Liste mit höchstens {CURVE_MAX_POINTS} Punkten erwartet"
-    last = 0
+    last = -1
     for p in v:
-        if (not isinstance(p, list) or len(p) != 2 or _check(("int", 1, CURVE_MAX_MIN), p[0])
+        if (not isinstance(p, list) or len(p) != 2 or _check(("int", 0, CURVE_MAX_MIN), p[0])
                 or _check(("num", 0, 100), p[1])):
-            return f"Punkt = [Minuten 1…{CURVE_MAX_MIN}, Prozent 0…100]"
+            return f"Punkt = [Minuten 0…{CURVE_MAX_MIN}, Prozent 0…100]"
         if p[0] <= last:
             return "Die Minuten müssen von Punkt zu Punkt steigen"
         last = p[0]

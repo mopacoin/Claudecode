@@ -99,12 +99,19 @@ class TestLightLevel(unittest.TestCase):
         self.assertEqual(at(6, 40), 60)             # 20 min vor Aus: zwischen 100 % und 20 %
         self.assertEqual(at(6, 55), 10)
         self.assertEqual(rules.curve_at([], 5), 1.0)
+        start = [[0, 40], [30, 100]]                # sofort mit 40 % starten
+        self.assertEqual((rules.curve_at(start, 0), rules.curve_at(start, 15), rules.curve_at(start, 30)), (0.4, 0.7, 1.0))
+        night = {**self.CFG, "sunrise": start, "sunset": [[0, 40], [30, 100]]}
+        self.assertEqual(rules.light_level(night, datetime(2026, 1, 1, 13, 0)), 40)
+        self.assertEqual(rules.light_level(night, datetime(2026, 1, 1, 6, 59)), 42)   # 1 min vor Aus: nicht unter 40 %
 
     def test_curve_validation_and_migration(self):
         from growcontroller import settings
         ok, err = settings.validate({"light": {"sunrise": [[10, 30], [45, 100]], "sunset": []}})
         self.assertFalse(err)
-        for bad in ([[10, 30]], [[20, 50], [10, 100]], [[0, 100]], [[700, 100]], [[10, 101]], "x", [[1, 2, 3]]):
+        _, err = settings.validate({"light": {"sunrise": [[0, 20], [30, 100]]}})
+        self.assertFalse(err)
+        for bad in ([[10, 30]], [[20, 50], [10, 100]], [[0, 20], [0, 100]], [[-1, 100]], [[700, 100]], [[10, 101]], "x", [[1, 2, 3]]):
             _, err = settings.validate({"light": {"sunrise": bad}})
             self.assertIn("light.sunrise", err, bad)
         d = settings.migrate_light({"on": "06:00", "sunrise_min": 45, "sunset_min": 0})

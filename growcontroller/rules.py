@@ -15,7 +15,8 @@ def light_on(cfg, now):
 
 
 def curve_at(points, minutes):
-    """Verlauf [[Minuten, %], …] ab 0 % bei Minute 0, linear zwischen den Punkten, danach 100 %. -> 0…1"""
+    """Verlauf [[Minuten, %], …]: Start bei 0 % (oder dem Punkt bei Minute 0), linear zwischen den Punkten,
+    danach 100 %. -> 0…1"""
     prev_m, prev_p = 0, 0.0
     for m, p in points or []:
         if minutes < m:

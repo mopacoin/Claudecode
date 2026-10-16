@@ -62,6 +62,8 @@ class Controller:
         self._warned = {}
         self.exhaust_notes = []
         self._on_since = {}  # Rolle -> seit wann an (monotonic), für Entfeuchter-Stufe 2
+        if cfg.get("sanlight"):  # Sequenznummer des Mesh-Absenders muss Neustarts überdauern
+            cfg["sanlight"] = {"seq_file": self._p("sanlight_seq.json"), **cfg["sanlight"]}
         self.gpio, self.outs, self.hubs = outputs.create_all(cfg)
         for n, r in self.saved.get("roles", {}).items():  # GGS-Steckdosen: im Dashboard gewählte Rolle
             if n in self.outs and self.outs[n].info.get("type") == "spiderfarmer" and r in GGS_ROLES + (outputs.MANUAL,):
@@ -292,9 +294,12 @@ class Controller:
                 pct = ex["intake_pct"]
                 want["intake"] = share >= pct or (cur.get("intake", False) and share >= pct - 10) \
                     or now.minute < self.cfg["climate"].get("fan_min_per_hour", 0)
+            level = rules.light_level(self.cfg["light"], now)
             for n, o in self.outs.items():
                 if o.proportional:
                     self._apply_servo(o, want, day, ex_w)
+                elif o.dimmable and o.role == "light":
+                    o.apply_dim(level)
                 else:
                     o.apply(want.get(o.role, False))
                 if o.known and o.state != self._prev_state[n]:
@@ -889,7 +894,7 @@ class Controller:
                 "outputs": {n: {"state": o.state, "mode": o.mode, "role": o.role,
                                 "ok": getattr(o.backend, "healthy", True), "info": o.info,
                                 "proportional": o.proportional, "angle": o.angle, "watts": o.watts,
-                                "ggs": self._ggs_info(o)} for n, o in self.outs.items()},
+                                "ggs": self._ggs_info(o), "dim": self._dim_info(o)} for n, o in self.outs.items()},
             }
 
     def get_settings(self):
@@ -1095,6 +1100,12 @@ class Controller:
             settings.save(self._p("settings.json"), self.saved)
             self.rev += 1
             self.event("mode", f"{name}: GGS-Modus {mode}" + (f" ({role})" if mode == "grow" else ""))
+
+    def _dim_info(self, o):
+        """Für das Dashboard: gesendete Helligkeit und Status, den der SANlight-Dimmer meldet."""
+        if not o.dimmable:
+            return None
+        return {"level": o.level, "max": o.backend.max, "dimmer": o.backend.link.info(o.backend.address)}
 
     def _ggs_info(self, o):
         """Für das Dashboard: aktueller GGS-Modus und gespeicherte Einstellungen einer Spider-Farmer-Steckdose."""

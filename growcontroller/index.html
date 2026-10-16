@@ -281,8 +281,11 @@ const FORMS = {
     {k: 'dehum_wait_min', l: 'Entfeuchter übernimmt, wenn die Abluft es nicht schafft, nach', u: 'min', step: 1, show: ['logic', 'smart']}],
    hint: 'Intelligente Schaltlogik: Statt fester Schwellen zählt der Wert in „Vorausschau“ Minuten (aus dem gemessenen Trend). Steigt die Feuchte schnell, geht der Entfeuchter früher an; fällt sie schon, bleibt er aus. Ist die Raumluft trocken genug, entfeuchtet zuerst die Abluft, wenn das weniger Strom kostet; die Temperatur wird mitgewichtet (zu warm → Abluft, zu kalt → Entfeuchter-Abwärme). Die Wirkung jedes Geräts lernt der Controller selbst (Übersicht → Klima-Logik). Leistungsaufnahme je Gerät optional als "power_w" in config.json. Im VPD-Modus rechnet der Controller das Ziel-VPD bei der aktuellen Temperatur in eine Feuchte-Vorgabe um. Der Blattversatz (meist −1 … −3 °C) gibt an, wie viel kühler die Blattoberfläche als die Luft ist.'},
   light: {title: 'Licht', fields: [
-    {k: 'enabled', l: 'Lichtzeitplan aktiv', t: 'bool'}, {k: 'on', l: 'Licht an', t: 'time'}, {k: 'off', l: 'Licht aus', t: 'time'}],
-   hint: 'Licht-aus vor Licht-an läuft über Mitternacht. Der Tag/Nacht-Wechsel steuert auch die Klima-Sollwerte.', photo: true},
+    {k: 'enabled', l: 'Lichtzeitplan aktiv', t: 'bool'}, {k: 'on', l: 'Licht an', t: 'time'}, {k: 'off', l: 'Licht aus', t: 'time'},
+    {k: 'dim', l: 'Helligkeit (SANlight-Dimmer)', u: '%', step: 1, dim: true},
+    {k: 'sunrise_min', l: 'Sonnenaufgang nach Licht an', u: 'min', step: 5, dim: true},
+    {k: 'sunset_min', l: 'Sonnenuntergang vor Licht aus', u: 'min', step: 5, dim: true}],
+   hint: 'Licht-aus vor Licht-an läuft über Mitternacht. Der Tag/Nacht-Wechsel steuert auch die Klima-Sollwerte. Mit SANlight-Dimmern: Helligkeit gilt für alle Lampen (100 % = „max“ des Ausgangs in config.json); Sonnenauf-/untergang dimmt in dieser Zeit gleichmäßig hoch bzw. herunter.', photo: true},
   irrigation: {title: 'Bewässerung', fields: [
     {k: 'enabled', l: 'Automatische Bewässerung', t: 'bool'}, {k: 'interval_min', l: 'Intervall', u: 'min', step: 1},
     {k: 'duration_s', l: 'Pumpendauer', u: 's', step: 1}, {k: 'from_hour', l: 'Erlaubt ab', u: 'Uhr', step: 1}, {k: 'to_hour', l: 'Erlaubt bis', u: 'Uhr', step: 1}]},
@@ -568,7 +571,9 @@ function exShare(w) {
   const ex = CFG.values.exhaust, top = S.is_day ? ex.max_w : ex.max_w_night;
   return w == null || top <= ex.min_w ? 0 : Math.max(0, Math.min(1, (w - ex.min_w) / (top - ex.min_w)));
 }
+function hasDim() { return !!S && Object.values(S.outputs).some(o => o.dim); }
 function stateText(o) {
+  if (o.dim) return o.state ? `${o.dim.level} %` : 'Aus';
   if (!o.proportional) return o.state ? 'Läuft' : 'Aus';
   if (o.mode === 'manual') return '<span style="color:var(--warn)">Kalibrier-Test</span>';
   if (o.watts == null) return '–';
@@ -643,6 +648,8 @@ function renderDevices() {
       <div class="sp"><div class="nm">${esc(LABEL[n] || n)}</div><div class="st">${bad ? '<span style="color:var(--bad)">nicht erreichbar</span>' : stateText(o)} · ${esc(o.info.type)}</div></div></div>
       ${o.proportional && o.watts != null ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${Math.round(o.watts)} W</b><span class="sub">${o.angle}° Servo · ${Math.round(exShare(o.watts) * 100)} % Leistung${S.exhaust?.measured_w != null ? ` · gemessen ${S.exhaust.measured_w.toFixed(1)} W` : ''}</span></div>
         <div class="lvl"><i style="width:${exShare(o.watts) * 100}%"></i></div>` : ''}
+      ${o.dim ? `<div class="row" style="margin-top:12px"><b style="font-size:22px">${o.dim.level ?? '–'} %</b><span class="sub">${o.dim.dimmer ? `Dimmer meldet ${o.dim.dimmer.brightness} % · Uhr ${esc(o.dim.dimmer.uptime)}` : 'kein Status vom Dimmer'}</span></div>
+        <div class="lvl"><i style="width:${o.dim.level || 0}%"></i></div>` : ''}
       <div class="info">${esc(info)}</div>
       ${o.ggs ? `<div class="sub" style="margin:8px 0">${ggsSummary(o)}</div>
         <div class="row ggsq" style="gap:8px">${o.role === 'manual' ? `<button data-gq="on" data-n="${esc(n)}" class="${o.mode === 'on' ? 'pri' : 'sec'}">Ein</button><button data-gq="off" data-n="${esc(n)}" class="${o.mode === 'off' ? 'pri' : 'sec'}">Aus</button>` : ''}
@@ -834,7 +841,7 @@ function renderSteer() {
 }
 function buildForm(sec) {
   const F = FORMS[sec], vals = CFG.values[sec], spec = CFG.spec[sec], box = $('#f-' + sec);
-  const fields = F.fields.map(f => fieldHTML(sec, f, vals[f.k], false)).join('');
+  const fields = F.fields.filter(f => !f.dim || hasDim()).map(f => fieldHTML(sec, f, vals[f.k], false)).join('');
   const photo = F.photo ? `<div class="fld"><label>Lichtzyklus (Schnellwahl)</label><div class="chips">${[[18, 6], [20, 4], [16, 8], [12, 12]].map(([a, b]) => `<button type="button" class="chip" data-ph="${a}">${a} / ${b}</button>`).join('')}</div></div>` : '';
   box.innerHTML = `<h3>${F.title}</h3>${F.hint ? `<p class="hint">${F.hint}</p>` : ''}<form data-sec="${sec}" novalidate><div class="fgrid">${fields}${photo}</div>
     <div class="actions"><button class="pri" type="submit">Speichern</button><button class="sec" type="button" data-reset>Zurücksetzen</button></div></form>`;
@@ -848,7 +855,7 @@ function buildForm(sec) {
   form.onsubmit = async ev => {
     ev.preventDefault(); form.querySelectorAll('.fld').forEach(e => e.classList.remove('bad')); form.querySelectorAll('.err').forEach(e => e.textContent = '');
     const out = {};
-    F.fields.forEach(f => { const el = form.elements[f.k], t = f.t || 'num'; out[f.k] = t === 'bool' ? el.checked : t === 'num' ? parseFloat(el.value) : el.value; });
+    F.fields.filter(f => !f.dim || hasDim()).forEach(f => { const el = form.elements[f.k], t = f.t || 'num'; out[f.k] = t === 'bool' ? el.checked : t === 'num' ? parseFloat(el.value) : el.value; });
     try { const r = await api('/api/settings', {[sec]: out}); CFG.values = r.values; delete form.dataset.dirty; toast('Gespeichert ✓'); S = await api('/api/status'); renderAll(); }
     catch (e) {
       const errs = e.data?.errors || {}; let any = false;
@@ -906,7 +913,7 @@ function openEditor(p, id) {
   let color = base.color || CFG.colors[0];
   const others = Object.entries(CFG.presets).filter(([k]) => k !== id);
   const meta = (k, label, inner) => `<div class="fld" data-s="meta" data-k="${k}"><label>${label}</label>${inner}<div class="err"></div></div>`;
-  const sec = (title, name) => `<div class="sec-t">${title}</div><div class="fgrid">${FORMS[name].fields.map(f => fieldHTML(name, f, val(name)[f.k], true)).join('')}</div>`;
+  const sec = (title, name) => `<div class="sec-t">${title}</div><div class="fgrid">${FORMS[name].fields.filter(f => !f.dim || hasDim()).map(f => fieldHTML(name, f, val(name)[f.k], true)).join('')}</div>`;
   dlg.innerHTML = `<form id="ed" novalidate><div class="dlg-h"><h2>${id ? 'Zyklus bearbeiten' : 'Neuer Zyklus'}</h2><span class="sp"></span><button type="button" class="chip" data-x>✕</button></div>
     <div class="dlg-b"><div class="fgrid">
       ${meta('label', 'Name', `<div class="ig"><input name="label" maxlength="40" value="${esc(base.label || '')}" placeholder="z. B. Mein Blüte-Rezept"></div>`)}
@@ -924,7 +931,7 @@ function openEditor(p, id) {
     const body = {label: form.elements.label.value, color, notes: form.elements.notes.value, days: Number(form.elements.days.value) || 0, next: form.elements.next.value};
     if (id) body.id = id;
     for (const s of ['climate', 'light', 'irrigation']) { body[s] = {};
-      FORMS[s].fields.forEach(f => { const el = form.elements[`${s}.${f.k}`], t = f.t || 'num'; body[s][f.k] = t === 'bool' ? el.checked : t === 'num' ? parseFloat(el.value) : el.value; }); }
+      FORMS[s].fields.filter(f => !f.dim || hasDim()).forEach(f => { const el = form.elements[`${s}.${f.k}`], t = f.t || 'num'; body[s][f.k] = t === 'bool' ? el.checked : t === 'num' ? parseFloat(el.value) : el.value; }); }
     try {
       const r = await api('/api/presets', body); CFG.presets = r.presets; dlg.close();
       toast(id ? 'Zyklus gespeichert ✓' : 'Zyklus erstellt ✓'); S = await api('/api/status'); renderAll(true);

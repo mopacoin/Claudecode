@@ -94,6 +94,7 @@ Dienstes), angezeigt wird der vom Gerät gemeldete Zustand.
 | `tuya` | Tuya-Entfeuchter lokal (`tinytuya`) | `dev_id`, `local_key`, `address` (`Auto`), `version` (`auto`), `dp`, `value_on`, `value_off` |
 | `mqtt_servo` | Servo/Klappe per MQTT | `topic`, `angle_on`, `angle_off`, `payload` (`"{angle}"` oder JSON-Vorlage); Broker im Block `mqtt` |
 | `spiderfarmer` | Steckdose O1–O5 eines Spider Farmer GGS-Controllers per Bluetooth | `mac`, `outlet` (1–5), `uid` |
+| `sanlight` | SANlight-LED-Dimmer per Bluetooth Mesh, dimmbar (Rolle `light`) | `address` (Mesh-Adresse), `max` (%); Keys im Block `sanlight` |
 
 **Spider Farmer GGS:** Sensor und Steckdosen teilen sich eine dauerhafte Bluetooth-Verbindung (`growcontroller/spiderfarmer.py`,
 Protokoll dort beschrieben; Paket `cryptography`). Sie geht direkt über einen L2CAP-Socket, weil die BlueZ-Dienstsuche bei diesem
@@ -114,6 +115,28 @@ neuere Firmware verschlüsselt anders.
 ```json
 "sensors": { "ggs": { "driver": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "uid": "123456", "prefix": "ggs_" } },
 "outputs": { "ggs_o5": { "type": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "uid": "123456", "outlet": 5, "role": "manual" } }
+```
+
+**SANlight-LED-Dimmer (SLD, Bluetooth Mesh):** Ausgangstyp `sanlight` mit Rolle `light` – der Licht-Zeitplan schaltet
+die Lampen nicht nur, er **dimmt** sie (`growcontroller/sanlight.py`, Protokoll aus der SANlight-Mesh-App 3.4.0 rekonstruiert,
+geprüft mit SLD V5 / Firmware 5; Pakete `bleak`, `cryptography`). Gesendet wird die Max-Helligkeit des Dimmers wie mit dem
+Schieberegler der App. Im Licht-Tab: **Helligkeit** (0–100 %), **Sonnenaufgang** (Minuten nach Licht an hochdimmen) und
+**Sonnenuntergang** (Minuten vor Licht aus herunterdimmen); Zyklen können eigene Helligkeiten tragen. `max` je Ausgang ist der
+Dimmerwert bei 100 % – so dimmen unterschiedlich starke Lampen gleichmäßig. Die Gerätekarte zeigt die gesendete Helligkeit und
+was der Dimmer meldet (Helligkeit, Dimmer-Uhr). Gerät „Ein“ = 100 %, „Aus“ = 0 %.
+NetKey/AppKey stammen aus dem Mesh-Export der SANlight-App (`SANlightMesh.json`, Einstellungen → „Export mesh“). `src_address`
+muss eine im Mesh **freie** Unicast-Adresse sein, die kein anderes Programm benutzt (Standard `0x0011`); die Sequenznummer liegt
+in `data/sanlight_seq.json` – nicht löschen, sonst verwerfen die Dimmer die Befehle. Den IV-Index liest der Controller aus dem
+Beacon der Dimmer. Hängen die Lampen am Licht-Relais, sind die Dimmer nachts stromlos – das gilt dann nicht als Störung.
+Beim Beenden/Neustart des Dienstes bleiben die Lampen, wie sie sind. Die Dimmer haben keine Echtzeituhr: ihr eigener
+Tageslichtzyklus zählt ab dem Einschalten – dort am besten konstant 100 % lassen, den Verlauf macht der Growcontroller.
+Eine Bluetooth-Verbindung je Dimmer: Solange der Pi verbunden ist, nimmt die App ggf. einen anderen Dimmer als Proxy.
+```json
+"sanlight": { "net_key": "${SANLIGHT_NET_KEY}", "app_key": "${SANLIGHT_APP_KEY}", "src_address": "0x0011" },
+"outputs": {
+  "lampe_links":  { "type": "sanlight", "address": "0x0003", "max": 51, "role": "light" },
+  "lampe_rechts": { "type": "sanlight", "address": "0x0004", "max": 51, "role": "light" }
+}
 ```
 
 Geheimnisse: `.env.example` nach `.env` kopieren (nie committen). Zugangsdaten als `${MEROSS_PASSWORD}`, `${TUYA_LOCAL_KEY}` usw. schreiben und als Umgebungsvariablen setzen

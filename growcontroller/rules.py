@@ -14,6 +14,26 @@ def light_on(cfg, now):
     return on <= t < off if on < off else (t >= on or t < off)
 
 
+def light_level(cfg, now):
+    """Helligkeit 0…100 % für dimmbares Licht: `dim` während des Tages, sanfter Anstieg in den ersten
+    `sunrise_min` Minuten nach Licht an und Abfall in den letzten `sunset_min` Minuten vor Licht aus."""
+    if not cfg.get("enabled", True) or not light_on(cfg, now):
+        return 0.0
+    on, off = _t(cfg["on"]), _t(cfg["off"])
+    mins = lambda a, b: ((b.hour * 60 + b.minute) - (a.hour * 60 + a.minute)) % 1440 or 1440
+    t = now.time()
+    length = mins(on, off)
+    since = (mins(on, t) % 1440) + t.second / 60  # Minuten seit Licht an
+    left = length - since                            # Minuten bis Licht aus
+    f = 1.0
+    rise, fall = cfg.get("sunrise_min", 0), cfg.get("sunset_min", 0)
+    if rise and since < rise:
+        f = min(f, since / rise)
+    if fall and left < fall:
+        f = min(f, left / fall)
+    return round(max(0.0, f) * cfg.get("dim", 100), 1)
+
+
 def hysteresis(value, current, low, high):
     """Schaltet an bei value<low, aus bei value>=high (Heizen/Befeuchten)."""
     if value is None:

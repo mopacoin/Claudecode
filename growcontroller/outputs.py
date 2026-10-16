@@ -51,7 +51,9 @@ class Output:
         self._max_hit = False  # Laufzeitbegrenzung ausgelöst -> erst nach "aus" wieder freigeben
         self._cmd = None
         self.known = not self.manual  # manual: erst bekannt, wenn das Gerät meldet oder von Hand geschaltet wurde
-        if not proportional and not self.manual:
+        self.dimmable = hasattr(backend, "level")  # SANlight-Dimmer: Helligkeit in % statt Ein/Aus
+        self.level = None
+        if not proportional and not self.manual and getattr(backend, "initial", True):
             backend.set(False)
 
     @property
@@ -100,9 +102,22 @@ class Output:
             self.backend.set(angle)
         self.watts = watts
 
+    def apply_dim(self, pct):
+        """Dimmbares Licht: `pct` = Helligkeit laut Zeitplan (0…100). Ein = 100 %, Aus = 0 %.
+        Gesendet wird nur bei einer Änderung um mindestens 1 %."""
+        if self.mode in ("on", "off"):
+            pct = 100 if self.mode == "on" else 0
+        pct = int(round(max(0, min(100, pct))))
+        self.known = True
+        if pct != self.level:
+            if (pct > 0) != self.state:
+                self.changed = time.monotonic()
+            self.level, self.state = pct, pct > 0
+            self.backend.set(pct)
+
     def shutdown(self):
-        if self.manual:
-            return  # von Hand geschaltete Geräte beim Beenden nicht anfassen
+        if self.manual or getattr(self.backend, "keep_on_shutdown", False):
+            return  # von Hand geschaltete Geräte / Dimmer beim Beenden nicht anfassen
         self.state = self.safe_state
         self.backend.set(self.safe_state)
 
@@ -146,6 +161,9 @@ def _make_backend(typ, c, cfg, gpio, hub):
         return backends.TuyaBackend(**c)
     if typ == "spiderfarmer":
         return backends.SpiderFarmerBackend(**c)
+    if typ == "sanlight":
+        from .sanlight import SanlightLink
+        return backends.SanlightBackend(SanlightLink.get(**cfg["sanlight"]), **c)
     if typ == "mqtt_servo":
         m = cfg["mqtt"]
         h = hub("mqtt", lambda: backends.MqttHub(m["host"], m.get("port", 1883), m.get("username"), m.get("password")))

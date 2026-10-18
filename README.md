@@ -158,7 +158,7 @@ Tagesmitte 4 h, Abend ±15 min, Morgen + Abend 30 min. Gerät „Ein/Aus“ übe
 **Meross lokal (`meross_local`)** liest vor dem Schalten den Zustand; steht er falsch, wird bis zu `repeat` (3) Mal geschaltet und
 zurückgelesen, bis er stimmt. Eigene Zeitpläne in der Meross-App sollte man dann löschen, sonst schalten beide.
 ```json
-"infrarot": { "type": "meross_local", "ip": "192.168.178.34", "key": "${MEROSS_KEY}", "role": "timer", "label": "Infrarot" },
+"infrarot": { "type": "meross_local", "ip": "192.168.178.127", "key": "${MEROSS_KEY}", "role": "timer", "label": "Infrarot" },
 "uva":      { "type": "meross_local", "ip": "192.168.178.46", "key": "${MEROSS_KEY}", "role": "timer", "label": "UVA" }
 ```
 

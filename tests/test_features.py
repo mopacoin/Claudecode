@@ -193,14 +193,31 @@ class TestDailyReport(unittest.TestCase):
         self.assertIn("🟡 Luftfeuchte: 75 % im Ziel", text)   # nachts 6 h zu feucht -> 75 %
         self.assertIn("🌱 GGS 1: Feuchte Ø 12,0 %", text)
         self.assertIn("Alarme: 2 · Bewässerungen: 1", text)
-        self.assertEqual(title, "Grow-Tagesbericht: Luftfeuchte prüfen")
+        self.assertIn("🟡 Luftfeuchte: 75 % im Ziel · 0 % zu trocken · 25 % zu feucht", text)
+        self.assertIn("Tag 100 % · Nacht 0 %", text)
+        self.assertIn("🟡 Alle gleichzeitig im Ziel (Temperatur + Luftfeuchte + VPD): 75 %", text)
+        self.assertEqual(title, "Grow-Tagesbericht: Luftfeuchte zu feucht")
+
+    def test_each_value_separately_with_direction(self):
+        from growcontroller import report
+        day = lambda t: rules.light_on(LIGHT, t)
+        # Temperatur nachts zu kalt, VPD tags zu niedrig -> einzeln je 75 %, gleichzeitig nur 50 %
+        rows = self.rows(temp=lambda t: 25.0 if day(t) else 17.0, hum=lambda t: 60 if day(t) else 55,
+                         vpd=lambda t: 0.7 if day(t) and t.hour < 14 else (1.0 if day(t) else 0.9))
+        title, text, ok = report.build(rows, self.CL, LIGHT)
+        self.assertFalse(ok)
+        self.assertIn("🟡 Temperatur: 75 % im Ziel · 25 % zu kalt · 0 % zu warm", text)
+        self.assertIn("% zu niedrig", text)
+        self.assertIn("Grow-Tagesbericht: Temperatur zu kalt, VPD zu niedrig", title)
+        self.assertIn("Alle gleichzeitig im Ziel", text.splitlines()[1])
 
     def test_all_green_and_vpd_mode_skips_humidity(self):
         from growcontroller import report
         rows = self.rows(temp=lambda t: 25.0 if rules.light_on(LIGHT, t) else 20.0, hum=lambda t: 99, vpd=lambda t: 1.0 if rules.light_on(LIGHT, t) else 0.9)
         title, text, ok = report.build(rows, {**self.CL, "control": "vpd"}, LIGHT)
         self.assertTrue(ok)
-        self.assertNotIn("Luftfeuchte", text.split("\n", 1)[1])
+        self.assertNotIn("Luftfeuchte:", text)                      # nicht bewertet …
+        self.assertIn("ℹ️ Luftfeuchte (folgt im VPD-Modus", text)     # … nur als Info
         self.assertIn("alles im grünen Bereich", title)
 
     def test_too_few_rows(self):

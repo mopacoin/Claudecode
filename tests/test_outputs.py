@@ -67,15 +67,17 @@ class TestDevices(unittest.TestCase):
 
         srv = HTTPServer(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
-        b = backends.MerossLocalBackend(f"127.0.0.1:{srv.server_port}", "KEY")
+        b = backends.MerossLocalBackend(f"127.0.0.1:{srv.server_port}", "KEY", verify_s=0)
         b.set(True)
+        sets = lambda: [m for m in seen if m["header"]["method"] == "SET"]
         for _ in range(60):
-            if seen: break
+            if sets(): break
             time.sleep(0.05)
         b.close(); srv.shutdown()
-        h = seen[0]["header"]
+        self.assertEqual(seen[0]["header"]["namespace"], "Appliance.System.All")   # erst Zustand lesen
+        h = sets()[0]["header"]
         self.assertEqual(h["sign"], hashlib.md5(f"{h['messageId']}KEY{h['timestamp']}".encode()).hexdigest())
-        self.assertEqual(seen[0]["payload"], {"togglex": {"channel": 0, "onoff": 1}})
+        self.assertEqual(sets()[0]["payload"], {"togglex": {"channel": 0, "onoff": 1}})
 
     def test_tuya_value_dp_and_version_probe(self):
         calls = []

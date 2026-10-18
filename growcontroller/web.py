@@ -127,6 +127,12 @@ def make_handler(ctl, token):
                     return self._send(200, ctl.status())
                 except ValueError as e:
                     return self._send(400, {"error": str(e)})
+            if len(parts) == 3 and parts[:2] == ["api", "timer"]:
+                try:
+                    ctl.set_timer(parts[2], body)
+                    return self._send(200, ctl.status())
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
             if len(parts) == 3 and parts[:2] == ["api", "dim"]:
                 try:
                     ctl.set_dim(parts[2], body.get("pct"))

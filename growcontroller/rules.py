@@ -14,6 +14,42 @@ def light_on(cfg, now):
     return on <= t < off if on < off else (t >= on or t < off)
 
 
+def timer_point(p, light):
+    """Zeitpunkt einer Zeitschaltung -> Minute des Tages. "HH:MM" oder relativ zum Licht: "on+15", "off-30"."""
+    if p[:2] == "on" or p[:3] == "off":
+        ref = "on" if p[:2] == "on" else "off"
+        h, m = light[ref].split(":")
+        return (int(h) * 60 + int(m) + int(p[len(ref):] or 0)) % 1440
+    h, m = p.split(":")
+    return (int(h) * 60 + int(m)) % 1440
+
+
+def timer_spans(timer, light):
+    """Aktive Zeitfenster als [[Start, Ende, an_min, aus_min], …] in Minuten des Tages (Ende kann über Mitternacht gehen)."""
+    out = []
+    for w in (timer or {}).get("windows", []):
+        if not light.get("enabled", True) and any(w[k][:2] in ("on", "of") for k in ("start", "end")):
+            continue  # an das Licht gekoppelt, Lichtplan ist aus
+        out.append([timer_point(w["start"], light), timer_point(w["end"], light), w.get("on_min", 0), w.get("off_min", 0)])
+    return out
+
+
+def timer_on(timer, light, now):
+    """Soll eine Zeitschaltung jetzt an sein? Fenster dürfen über Mitternacht gehen (Start == Ende = ganzer Tag);
+    mit on_min/off_min schaltet sie im Fenster im Intervall (ab Fensterbeginn)."""
+    if not timer or not timer.get("enabled", True):
+        return False
+    t = now.hour * 60 + now.minute + now.second / 60
+    for start, end, on_min, off_min in timer_spans(timer, light):
+        length = (end - start) % 1440 or 1440
+        since = (t - start) % 1440
+        if since < length:
+            if on_min and off_min and since % (on_min + off_min) >= on_min:
+                continue
+            return True
+    return False
+
+
 def curve_at(points, minutes):
     """Verlauf [[Minuten, %], …]: Start bei 0 % (oder dem Punkt bei Minute 0), linear zwischen den Punkten,
     danach 100 %. -> 0…1"""

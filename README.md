@@ -81,7 +81,7 @@ fällt ein Zusatz-Sensor 5 min aus, gibt es einen Alarm.
 Govee-Sensoren testen: `.venv/bin/python -m growcontroller.govee_scan <MAC> …` zeigt Rohdaten und erkannte Werte.
 
 ## Ausgangs-Typen (`config.json` → `outputs`)
-Jeder Ausgang hat `type` und optional `role` (Standard = Name). Rollen: `light`, `fan`, `heater`, `humidifier`,
+Jeder Ausgang hat `type` und optional `role` (Standard = Name). Rollen: `light`, `timer` (eigener Zeitplan, siehe unten), `fan`, `heater`, `humidifier`,
 `dehumidifier`, `pump`, `vent` und `intake` (Abluft-Klappe/Zuluft, folgen dem Lüfterbedarf). Mehrere Ausgänge mit derselben Rolle schalten gemeinsam.
 Rolle `manual`: keine Automatik, nur Ein/Aus von Hand im Dashboard; „Frei“ lässt das Gerät in Ruhe (auch beim Start und Beenden des
 Dienstes), angezeigt wird der vom Gerät gemeldete Zustand.
@@ -147,6 +147,19 @@ Eine Bluetooth-Verbindung je Dimmer: Solange der Pi verbunden ist, nimmt die App
   "lampe_links":  { "type": "sanlight", "address": "0x0003", "max": 51, "role": "light" },
   "lampe_rechts": { "type": "sanlight", "address": "0x0004", "max": 51, "role": "light" }
 }
+```
+
+**Zeitschaltung (Rolle `timer`):** Für Steckdosen, die nur nach Zeitplan schalten sollen (z. B. Infrarot, UVA). Im Licht-Tab hat
+jede eine Karte mit 24-h-Zeitleiste (Lichtphase hinterlegt) und bis zu 8 Zeitfenstern. Start/Ende als Uhrzeit oder relativ zum
+Licht („15 min vor Licht aus“ = `off-15`, „Licht an“ = `on+0`) – so wandert der Plan mit, wenn sich der Lichtzyklus ändert.
+Fenster dürfen über Mitternacht gehen; optional im Fenster takten (z. B. 10 min an / 20 min aus). Vorlagen: Wie Licht,
+Tagesmitte 4 h, Abend ±15 min, Morgen + Abend 30 min. Gerät „Ein/Aus“ übersteuert. API: `POST /api/timer/<ausgang>` mit
+`{"enabled": true, "windows": [{"start": "off-15", "end": "off+15", "on_min": 0, "off_min": 0}]}`; gespeichert in `data/settings.json`.
+**Meross lokal (`meross_local`)** liest vor dem Schalten den Zustand; steht er falsch, wird bis zu `repeat` (3) Mal geschaltet und
+zurückgelesen, bis er stimmt. Eigene Zeitpläne in der Meross-App sollte man dann löschen, sonst schalten beide.
+```json
+"infrarot": { "type": "meross_local", "ip": "192.168.178.34", "key": "${MEROSS_KEY}", "role": "timer", "label": "Infrarot" },
+"uva":      { "type": "meross_local", "ip": "192.168.178.46", "key": "${MEROSS_KEY}", "role": "timer", "label": "UVA" }
 ```
 
 Geheimnisse: `.env.example` nach `.env` kopieren (nie committen). Zugangsdaten als `${MEROSS_PASSWORD}`, `${TUYA_LOCAL_KEY}` usw. schreiben und als Umgebungsvariablen setzen

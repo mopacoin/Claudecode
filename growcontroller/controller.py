@@ -71,6 +71,7 @@ class Controller:
             if n in self.outs and self.outs[n].info.get("type") == "spiderfarmer" and r in GGS_ROLES + (outputs.MANUAL,):
                 self.outs[n].role = r
         self.has_dehum = any(o.role == "dehumidifier" for o in self.outs.values())
+        self.timers = {n: t for n, t in self.saved.get("timers", {}).items() if settings.validate_timer(t)[0]}
         for n, pct in self.saved.get("dim_levels", {}).items():  # Helligkeit je Lampe (Schieberegler)
             if n in self.outs and self.outs[n].dimmable and isinstance(pct, (int, float)) and 0 <= pct <= 100:
                 self.outs[n].backend.max = float(pct)
@@ -305,6 +306,8 @@ class Controller:
                     self._apply_servo(o, want, day, ex_w)
                 elif o.dimmable and o.role == "light":
                     o.apply_dim(level)
+                elif o.role == "timer":  # Zeitschaltung: eigener Plan je Steckdose
+                    o.apply(rules.timer_on(self.timers.get(n), self.cfg["light"], now))
                 else:
                     o.apply(want.get(o.role, False))
                 if o.known and o.state != self._prev_state[n]:
@@ -899,7 +902,8 @@ class Controller:
                 "outputs": {n: {"state": o.state, "mode": o.mode, "role": o.role,
                                 "ok": getattr(o.backend, "healthy", True), "info": o.info,
                                 "proportional": o.proportional, "angle": o.angle, "watts": o.watts,
-                                "ggs": self._ggs_info(o), "dim": self._dim_info(o)} for n, o in self.outs.items()},
+                                "ggs": self._ggs_info(o), "dim": self._dim_info(o),
+                                "timer": self._timer_info(n, o)} for n, o in self.outs.items()},
             }
 
     def get_settings(self):
@@ -1105,6 +1109,28 @@ class Controller:
             settings.save(self._p("settings.json"), self.saved)
             self.rev += 1
             self.event("mode", f"{name}: GGS-Modus {mode}" + (f" ({role})" if mode == "grow" else ""))
+
+    def set_timer(self, name, body):
+        """Zeitschaltung einer Steckdose (Rolle "timer") speichern. Wirft ValueError mit lesbarem Text."""
+        o = self.outs.get(name)
+        if not o or o.role != "timer":
+            raise ValueError("Keine Steckdose mit Zeitschaltung")
+        clean, err = settings.validate_timer(body)
+        if err:
+            raise ValueError(err)
+        with self.lock:
+            self.timers[name] = clean
+            self.saved.setdefault("timers", {})[name] = clean
+            settings.save(self._p("settings.json"), self.saved)
+            self.rev += 1
+            self.event("settings", f"{name}: Zeitschaltung {len(clean['windows'])} Fenster" + ("" if clean["enabled"] else " (aus)"))
+
+    def _timer_info(self, n, o):
+        if o.role != "timer":
+            return None
+        t = self.timers.get(n) or {"enabled": True, "windows": []}
+        return {**t, "spans": rules.timer_spans(t, self.cfg["light"]),
+                "want": rules.timer_on(t, self.cfg["light"], datetime.now())}
 
     def set_dim(self, name, pct):
         """Helligkeit einer Lampe in % (wie der Regler der SANlight-App). Gilt, solange das Licht an ist;

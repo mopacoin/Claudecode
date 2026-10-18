@@ -225,6 +225,40 @@ _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 _PRESET_KEYS = {"id", "label", "color", "notes", "days", "next", "climate", "light", "irrigation"}
 
 
+_TIMER_POINT = re.compile(r"^(([01]\d|2[0-3]):[0-5]\d|(on|off)[+-]\d{1,4})$")
+TIMER_MAX_WINDOWS = 8
+
+
+def validate_timer(body):
+    """Zeitschaltung einer Steckdose: {"enabled": bool, "windows": [{"start", "end", "on_min", "off_min"}]}.
+    start/end: "HH:MM" oder relativ zum Licht "on+15" / "off-30" (Minuten, ±1440). -> (sauber, fehler)"""
+    if not isinstance(body, dict):
+        return None, "Objekt erwartet"
+    en, wins = body.get("enabled", True), body.get("windows", [])
+    if not isinstance(en, bool):
+        return None, "enabled: true/false erwartet"
+    if not isinstance(wins, list) or len(wins) > TIMER_MAX_WINDOWS:
+        return None, f"höchstens {TIMER_MAX_WINDOWS} Zeitfenster"
+    out = []
+    for i, w in enumerate(wins, 1):
+        if not isinstance(w, dict):
+            return None, f"Fenster {i}: Objekt erwartet"
+        for k in ("start", "end"):
+            v = w.get(k)
+            if not isinstance(v, str) or not _TIMER_POINT.match(v) or (v[:1] in "o" and abs(int(v.lstrip("onf"))) > 1440):
+                return None, f"Fenster {i}: {'Start' if k == 'start' else 'Ende'} ungültig (HH:MM oder Licht an/aus ± Minuten)"
+        iv = {}
+        for k in ("on_min", "off_min"):
+            v = w.get(k, 0)
+            if _check(("int", 0, 1440), v):
+                return None, f"Fenster {i}: Intervall 0…1440 min"
+            iv[k] = v
+        if bool(iv["on_min"]) != bool(iv["off_min"]):
+            return None, f"Fenster {i}: Intervall braucht An- und Aus-Dauer (oder beide 0)"
+        out.append({"start": w["start"], "end": w["end"], **iv})
+    return {"enabled": en, "windows": out}, None
+
+
 def validate_preset(body, ids, own_id=None):
     """Prüft einen eigenen Zyklus. ids = alle existierenden Zyklus-IDs (für 'next')."""
     if not isinstance(body, dict):

@@ -145,20 +145,59 @@ def meross_request(ip, key, namespace, method="SET", payload=None, timeout=5):
 
 class MerossLocalBackend(WorkerBackend):
     """Meross-Steckdose im LAN (HTTP, signiert mit dem Geräte-Key) – wie node-red-contrib-meross
-    `smartplug-control`. Kein Cloud-Zugriff nötig."""
+    `smartplug-control`. Kein Cloud-Zugriff nötig. Manche Stecker verschlucken Schaltbefehle: Der Befehl
+    wird bis zu `repeat`-mal gesendet, bis der zurückgelesene Zustand stimmt (oder, wenn der Zustand nicht
+    lesbar ist, einfach `repeat`-mal)."""
 
-    def __init__(self, ip, key, channel=0, timeout_s=5, **kw):
+    def __init__(self, ip, key, channel=0, timeout_s=5, repeat=3, verify_s=1.0, **kw):
         self.ip, self.key, self.channel, self.timeout_s = ip, key, channel, timeout_s
+        self.repeat, self.verify_s = max(1, int(repeat)), float(verify_s)
+        self.reported = None   # zuletzt vom Stecker gemeldeter Zustand
         super().__init__(**kw)
 
-    def _call(self, namespace, payload):
-        meross_request(self.ip, self.key, namespace, "SET", payload, self.timeout_s)
+    def _call(self, namespace, payload, method="SET"):
+        return meross_request(self.ip, self.key, namespace, method, payload, self.timeout_s)
 
-    def _send(self, on):
+    def _switch(self, on):
         try:
             self._call("Appliance.Control.ToggleX", {"togglex": {"channel": self.channel, "onoff": int(on)}})
         except RuntimeError:  # ältere Einkanal-Stecker kennen nur Toggle
             self._call("Appliance.Control.Toggle", {"toggle": {"onoff": int(on)}})
+
+    def state(self):
+        """Gemeldeter Zustand (True/False) oder None, wenn der Stecker ihn nicht liefert."""
+        try:
+            d = self._call("Appliance.System.All", {}, "GET").get("all", {}).get("digest", {})
+        except (OSError, RuntimeError, ValueError):
+            return None
+        tx = d.get("togglex")
+        if isinstance(tx, dict):
+            tx = [tx]
+        for t in tx or []:
+            if t.get("channel", 0) == self.channel:
+                return bool(t.get("onoff"))
+        tg = d.get("toggle")
+        return bool(tg["onoff"]) if isinstance(tg, dict) and "onoff" in tg else None
+
+    def _send(self, on):
+        st = self.state()
+        if st is not None:
+            self.reported = st
+            if st == bool(on):
+                return  # steht schon richtig (Auffrischen) -> nichts schalten
+        for _ in range(self.repeat):
+            self._switch(on)
+            time.sleep(self.verify_s)
+            st = self.state()
+            if st is not None:
+                self.reported = st
+                if st == bool(on):
+                    return
+        if st is not None and st != bool(on):
+            raise RuntimeError(f"Meross {self.ip}: nach {self.repeat} Versuchen noch {'an' if st else 'aus'}")
+
+    def actual(self):
+        return self.reported
 
 
 class TuyaBackend(WorkerBackend):

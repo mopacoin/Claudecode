@@ -205,7 +205,8 @@ tr+tr td{border-top:1px solid var(--line)}
       </section>
 
       <section class="tab" id="tab-climate"><div id="f-climate" class="card"></div><div id="f-exhaust" class="card mt"></div><div id="effCard" class="card mt" style="display:none"></div></section>
-      <section class="tab" id="tab-light"><div id="f-light" class="card"></div><div id="ramps" class="grid mt" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))"></div></section>
+      <section class="tab" id="tab-light"><div id="f-light" class="card"></div><div id="ramps" class="grid mt" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))"></div>
+        <div id="timers" class="grid mt" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))"></div></section>
       <section class="tab" id="tab-irrigation"><div id="f-irrigation" class="card"></div>
         <div class="card mt" id="steerInfo" style="display:none"></div><div id="f-steering" class="card mt"></div></section>
       <section class="tab" id="tab-alarms">
@@ -245,6 +246,7 @@ const P = { // Strichsymbole (24x24)
   thermo: '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
   moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   drop: '<path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z"/>',
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   leaf: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
@@ -257,7 +259,7 @@ const P = { // Strichsymbole (24x24)
   check: '<path d="M20 6 9 17l-5-5"/>', plug: '<path d="M12 22v-5M9 8V2M15 8V2M18 8v5a6 6 0 0 1-12 0V8z"/>',
 };
 const ico = n => `<svg class="ico" viewBox="0 0 24 24">${P[n]}</svg>`;
-const ROLE_ICO = {light: 'sun', fan: 'fan', heater: 'flame', humidifier: 'drops', dehumidifier: 'wind', pump: 'drop', intake: 'in', vent: 'out'};
+const ROLE_ICO = {light: 'sun', timer: 'clock', fan: 'fan', heater: 'flame', humidifier: 'drops', dehumidifier: 'wind', pump: 'drop', intake: 'in', vent: 'out'};
 const LABEL = {light: 'Licht', fan: 'Lüfter', heater: 'Heizung', humidifier: 'Befeuchter', dehumidifier: 'Entfeuchter',
   pump: 'Pumpe', zuluft: 'Zuluft', abluft_servo: 'Abluft-Servo'};
 const TABS = [['overview', 'Übersicht', 'Übersicht', 'grid'], ['devices', 'Geräte', 'Geräte', 'cpu'], ['climate', 'Klima', 'Klima', 'thermo'],
@@ -1026,6 +1028,135 @@ $('#ramps').addEventListener('pointerdown', e => {  // Punkt im Graphen ziehen
   svg.addEventListener('pointermove', move); svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
 });
 
+// ---- Zeitschaltungen (Steckdosen mit Rolle "timer", z. B. Infrarot / UVA) ----
+let TIMER_EDIT = {}, TIMER_DIRTY = {}, TIMER_SIG = '';
+const TREF = [['time', 'Uhrzeit'], ['on', 'Licht an'], ['off', 'Licht aus']];
+const tMin = s => +s.slice(0, 2) * 60 + +s.slice(3, 5);
+function tParse(p) { const m = /^(on|off)([+-]\d+)$/.exec(p); return m ? {ref: m[1], v: +m[2]} : {ref: 'time', v: p}; }
+function tFmt(e) { return e.ref === 'time' ? e.v : `${e.ref}${e.v < 0 ? '-' : '+'}${Math.abs(e.v)}`; }
+function tResolve(p) { const e = tParse(p), l = CFG.values.light; return ((e.ref === 'time' ? tMin(e.v) : tMin(l[e.ref]) + e.v) % 1440 + 1440) % 1440; }
+function tText(p) {
+  const e = tParse(p); if (e.ref === 'time') return e.v;
+  const r = e.ref === 'on' ? 'Licht an' : 'Licht aus';
+  return e.v ? `${Math.abs(e.v)} min ${e.v < 0 ? 'vor' : 'nach'} ${r}` : r;
+}
+function timerName(n, o) { return o.info.label || LABEL[n] || n.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()); }
+function timerOn(t, m) {  // gleiche Logik wie rules.timer_on (für die Vorschau ungespeicherter Änderungen)
+  if (!t.enabled) return false;
+  for (const w of t.windows) {
+    if (!CFG.values.light.enabled && (w.start + w.end).match(/on|off/)) continue;
+    const s = tResolve(w.start), len = ((tResolve(w.end) - s) % 1440 + 1440) % 1440 || 1440, since = ((m - s) % 1440 + 1440) % 1440;
+    if (since < len && !(w.on_min && w.off_min && since % (w.on_min + w.off_min) >= w.on_min)) return true;
+  }
+  return false;
+}
+const TIMER_TPL = [['light', 'Wie Licht'], ['mid', 'Tagesmitte 4 h'], ['eve', 'Abend ±15 min'], ['edges', 'Morgen + Abend 30 min'], ['none', 'Leeren']];
+function timerTpl(t) {
+  const l = CFG.values.light, L = ((tMin(l.off) - tMin(l.on)) % 1440 + 1440) % 1440 || 1440, h = Math.round(L / 2);
+  const w = (start, end) => ({start, end, on_min: 0, off_min: 0});
+  return {light: [w('on+0', 'off+0')], mid: [w(`on+${Math.max(0, h - 120)}`, `on+${Math.min(L, h + 120)}`)],
+          eve: [w('off-15', 'off+15')], edges: [w('on+0', 'on+30'), w('off-30', 'off+0')], none: []}[t];
+}
+function timerBar(t) {  // 24-h-Zeitleiste: Lichtphase hinterlegt, aktive Minuten als Balken
+  const W = 600, H = 46, x = m => m / 1440 * W, l = CFG.values.light, segs = [];
+  let start = null;
+  for (let m = 0; m <= 1440; m++) {
+    const on = m < 1440 && timerOn(t, m);
+    if (on && start === null) start = m;
+    if (!on && start !== null) { segs.push([start, m]); start = null; }
+  }
+  const lo = tMin(l.on), lf = tMin(l.off), lit = l.enabled ? (lo < lf ? [[lo, lf]] : [[lo, 1440], [0, lf]]) : [];
+  const now = new Date(S.time), nm = now.getHours() * 60 + now.getMinutes();
+  return `<svg viewBox="0 0 ${W} ${H + 16}" style="width:100%;height:auto;display:block;margin:8px 0">
+    <rect x="0" y="0" width="${W}" height="${H}" rx="8" fill="var(--card2)"/>
+    ${lit.map(([a, b]) => `<rect x="${x(a)}" y="0" width="${x(b) - x(a)}" height="${H}" fill="var(--warn)" opacity=".12"/>`).join('')}
+    ${segs.map(([a, b]) => `<rect x="${x(a)}" y="9" width="${Math.max(1.5, x(b) - x(a))}" height="${H - 18}" rx="3" fill="var(--acc)"/>`).join('')}
+    <line x1="${x(nm)}" x2="${x(nm)}" y1="0" y2="${H}" stroke="var(--text)" stroke-width="2"/>
+    ${[0, 6, 12, 18, 24].map(hh => `<text x="${Math.min(W - 2, Math.max(2, x(hh * 60)))}" y="${H + 13}" font-size="11" fill="var(--mute)" text-anchor="${hh === 0 ? 'start' : hh === 24 ? 'end' : 'middle'}">${hh} Uhr</text>`).join('')}
+  </svg>`;
+}
+function tEndpoint(i, k, p) {
+  const e = tParse(p);
+  return `<div class="row" style="gap:6px;flex-wrap:nowrap"><div class="ig" style="max-width:130px"><select data-w="${i}" data-k="${k}" data-part="ref">${TREF.map(([v, l]) => `<option value="${v}" ${e.ref === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    ${e.ref === 'time' ? `<div class="ig" style="max-width:120px"><input type="time" value="${e.v}" data-w="${i}" data-k="${k}" data-part="v"></div>`
+      : `<div class="ig" style="max-width:120px"><input type="number" step="5" min="-1440" max="1440" value="${e.v}" data-w="${i}" data-k="${k}" data-part="v"><span>min</span></div>`}</div>`;
+}
+function renderTimers(force) {
+  const box = $('#timers'); if (!box || !S || !CFG) return;
+  const T = Object.entries(S.outputs).filter(([, o]) => o.timer);
+  if (!T.length) { box.innerHTML = ''; return; }
+  const sig = JSON.stringify([T.map(([n, o]) => [n, o.timer.enabled, o.timer.windows]), CFG.values.light]);
+  if (!force && box.children.length && (sig === TIMER_SIG || Object.values(TIMER_DIRTY).some(Boolean) || box.contains(document.activeElement))) {
+    T.forEach(([n]) => { timerStatus(n); const b = $(`[data-tbar="${CSS.escape(n)}"]`); if (b && TIMER_EDIT[n]) b.innerHTML = timerBar(TIMER_EDIT[n]); });
+    return;  // nur Status und Zeitleiste auffrischen – Bedienelemente bleiben stehen
+  }
+  TIMER_SIG = sig;
+  T.forEach(([n, o]) => { TIMER_EDIT[n] = {enabled: o.timer.enabled, windows: JSON.parse(JSON.stringify(o.timer.windows))}; TIMER_DIRTY[n] = false; });
+  box.innerHTML = T.map(([n, o]) => `<div class="card" data-timer="${esc(n)}"></div>`).join('')
+    + `<p class="hint" style="grid-column:1/-1;margin:0">Zeitschaltung je Steckdose: Fenster mit Start und Ende als Uhrzeit oder relativ zum Licht (z. B. „15 min vor Licht aus“ – passt sich an, wenn sich der Lichtzyklus ändert). Optional im Fenster takten (z. B. 10 min an, 20 min aus). Fenster dürfen über Mitternacht gehen. Gerät „Ein/Aus“ unter Geräte übersteuert die Zeitschaltung.</p>`;
+  T.forEach(([n]) => drawTimer(n));
+}
+function timerStatus(n) {
+  const o = S.outputs[n], el = $(`[data-tstat="${CSS.escape(n)}"]`); if (!el || !o) return;
+  const rep = o.ok === false ? '<span style="color:var(--bad)">nicht erreichbar</span>' : `Steckdose <b style="color:var(--text)">${o.state ? 'an' : 'aus'}</b>`;
+  el.innerHTML = `${rep}${o.mode !== 'auto' ? ` · Modus <b style="color:var(--warn)">${o.mode === 'on' ? 'Ein' : 'Aus'}</b> (von Hand)` : ''}${TIMER_DIRTY[n] ? ' · <b style="color:var(--warn)">nicht gespeichert</b>' : ''}`;
+}
+function drawTimer(n) {
+  const o = S.outputs[n], t = TIMER_EDIT[n], card = $(`[data-timer="${CSS.escape(n)}"]`);
+  card.innerHTML = `<div class="row"><h3 style="margin:0">${ico('clock')} ${esc(timerName(n, o))}</h3><span class="sp"></span>
+      <label class="row" style="gap:6px"><input type="checkbox" data-en ${t.enabled ? 'checked' : ''}> aktiv</label></div>
+    <div class="sub" data-tstat="${esc(n)}"></div>
+    <div data-tbar="${esc(n)}">${timerBar(t)}</div>
+    <div class="sub">${t.windows.length ? t.windows.map(w => `${tText(w.start)} – ${tText(w.end)}${w.on_min ? ` (${w.on_min} min an / ${w.off_min} min aus)` : ''}`).join(' · ') : 'Keine Zeitfenster – Steckdose bleibt aus.'}</div>
+    <div class="fld" style="margin-top:10px"><label>Vorlage</label><div class="chips">${TIMER_TPL.map(([k, l]) => `<button type="button" class="chip" data-ttpl="${k}">${l}</button>`).join('')}</div></div>
+    ${t.windows.map((w, i) => `<div class="card" style="padding:10px;margin-top:10px;background:var(--card2)">
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div class="fld" style="margin:0"><label>Start</label>${tEndpoint(i, 'start', w.start)}</div>
+        <div class="fld" style="margin:0"><label>Ende</label>${tEndpoint(i, 'end', w.end)}</div>
+        <div class="fld" style="margin:0"><label>Takt (0 = durchgehend)</label><div class="row" style="gap:6px;flex-wrap:nowrap">
+          <div class="ig" style="max-width:110px"><input type="number" min="0" max="1440" step="1" value="${w.on_min}" data-w="${i}" data-k="on_min"><span>an</span></div>
+          <div class="ig" style="max-width:110px"><input type="number" min="0" max="1440" step="1" value="${w.off_min}" data-w="${i}" data-k="off_min"><span>aus</span></div></div></div>
+        <span class="sp"></span><button type="button" class="chip" data-tdel="${i}" title="Fenster entfernen">✕</button></div></div>`).join('')}
+    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap"><button type="button" class="sec" data-tadd>+ Zeitfenster</button><span class="sp"></span>
+      <button type="button" class="sec" data-treset>Zurücksetzen</button><button type="button" class="pri" data-tsave>Speichern</button></div>`;
+  timerStatus(n);
+}
+function timerChanged(n) { TIMER_DIRTY[n] = true; drawTimer(n); }
+$('#timers').addEventListener('click', async e => {
+  const card = e.target.closest('[data-timer]'), b = e.target.closest('button'); if (!card || !b) return;
+  const n = card.dataset.timer, t = TIMER_EDIT[n];
+  if (b.dataset.ttpl) { t.windows = timerTpl(b.dataset.ttpl); timerChanged(n); }
+  else if (b.dataset.tdel != null) { t.windows.splice(+b.dataset.tdel, 1); timerChanged(n); }
+  else if ('tadd' in b.dataset) {
+    if (t.windows.length >= 8) return toast('Höchstens 8 Zeitfenster', 1);
+    t.windows.push({start: 'on+0', end: 'on+60', on_min: 0, off_min: 0}); timerChanged(n);
+  } else if ('treset' in b.dataset) { TIMER_DIRTY[n] = false; renderTimers(true); }
+  else if ('tsave' in b.dataset) {
+    try { S = await api('/api/timer/' + encodeURIComponent(n), t); TIMER_DIRTY[n] = false; renderTimers(true); renderAll(); toast('Zeitschaltung gespeichert ✓'); }
+    catch (err) { toast(err.data?.error || err.message, 1); }
+  }
+});
+$('#timers').addEventListener('change', e => {
+  const card = e.target.closest('[data-timer]'); if (!card) return;
+  const n = card.dataset.timer, t = TIMER_EDIT[n], el = e.target;
+  if ('en' in el.dataset) t.enabled = el.checked;
+  else if (el.dataset.w != null) {
+    const w = t.windows[+el.dataset.w], k = el.dataset.k;
+    if (k === 'on_min' || k === 'off_min') w[k] = Math.max(0, Math.min(1440, Math.round(+el.value || 0)));
+    else {
+      const ep = tParse(w[k]);
+      if (el.dataset.part === 'ref') {  // Bezug wechseln: Zeitpunkt beibehalten, so gut es geht
+        const m = tResolve(w[k]), l = CFG.values.light;
+        if (el.value === 'time') ep.v = hm(m);
+        else { let d = m - tMin(l[el.value]); d = ((d + 720) % 1440 + 1440) % 1440 - 720; ep.v = d; }
+        ep.ref = el.value;
+      } else ep.v = ep.ref === 'time' ? (el.value || '00:00') : Math.max(-1440, Math.min(1440, Math.round(+el.value || 0)));
+      w[k] = tFmt(ep);
+    }
+  } else return;
+  timerChanged(n);
+});
+
 // ---- Zyklen ----
 function presetSummary(p) {
   const c = p.climate || {}, li = p.light || {}, ir = p.irrigation || {}, nx = p.next && CFG.presets[p.next];
@@ -1148,7 +1279,7 @@ $('#tokBtn').onclick = () => { const t = prompt('Neues Token (leer = löschen):'
 // ---- Hauptschleife ----
 let built = false;
 function renderAll(rebuild) {
-  renderHeader(); renderOverview(); renderLamps(); renderDevices(); renderAlarms(); renderSystem(); renderPresets(); renderEffect(); renderSmart(); renderSteer();
+  renderHeader(); renderOverview(); renderLamps(); renderTimers(); renderDevices(); renderAlarms(); renderSystem(); renderPresets(); renderEffect(); renderSmart(); renderSteer();
   if (!built || rebuild) { Object.keys(FORMS).forEach(buildForm); built = true; }
 }
 async function poll() {

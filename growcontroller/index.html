@@ -66,6 +66,7 @@ background:color-mix(in srgb,var(--sc) 18%,transparent);color:var(--sc)}.state i
 /* Lichtzyklus + VPD */
 .cyc{position:relative;height:14px;border-radius:7px;background:var(--card2);margin:16px 0 8px;overflow:visible}
 .cyc i{position:absolute;top:0;bottom:0;border-radius:7px;background:linear-gradient(90deg,#ffd45e,#ffb547);box-shadow:0 0 14px -2px #ffb54788}
+.cyc.tm{height:8px;margin:6px 0 2px}.cyc.tm i{background:var(--tc);box-shadow:none;border-radius:4px}.cyc.tm u{top:-4px;height:16px;width:2px}
 .cyc u{position:absolute;top:-5px;width:3px;height:24px;border-radius:2px;background:var(--text);transform:translateX(-1px);text-decoration:none;box-shadow:0 0 6px #000a}
 .scale{display:flex;justify-content:space-between;font-size:11px;color:var(--mute)}
 .zone{position:relative;height:12px;border-radius:6px;margin:18px 0 6px;background:linear-gradient(90deg,#4db8ff 0 20%,#3ddc97 20% 40%,#a3e635 40% 60%,#ffb547 60% 80%,#ff5d6c 80%);opacity:.9}
@@ -461,7 +462,8 @@ function renderLight() {
   $('#lightCard').innerHTML = `<h3>${ico(isOn ? 'sun' : 'moon')} Lichtzyklus</h3><div class="row"><div style="font-size:26px;font-weight:700">${l.enabled ? (isOn ? '☀ Tag' : '🌙 Nacht') : 'Deaktiviert'}</div><div class="sp"></div><div class="sub">${hm(dur)} h Licht</div></div>
     <div class="cyc">${l.enabled ? segs.map(([a, b]) => `<i style="left:${a}%;width:${b}%"></i>`).join('') : ''}<u style="left:${now / 14.4}%"></u></div>
     <div class="scale"><span>0</span><span>6</span><span>12</span><span>18</span><span>24 Uhr</span></div>
-    ${l.enabled ? `<div class="sub" style="margin-top:10px">${isOn ? 'Licht aus um ' + l.off : 'Licht an um ' + l.on} · in ${Math.floor(mins / 60)} h ${mins % 60} min</div>` : ''}`;
+    ${l.enabled ? `<div class="sub" style="margin-top:10px">${isOn ? 'Licht aus um ' + l.off : 'Licht an um ' + l.on} · in ${Math.floor(mins / 60)} h ${mins % 60} min</div>` : ''}
+    ${timerRows(now)}`;
 }
 let LAMP_BUSY = 0;  // Regler wird gerade bewegt: nicht neu zeichnen
 function lampName(n) { return LABEL[n] || n.replace(/^lampe_/, '').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()); }
@@ -486,6 +488,22 @@ $('#lampCard').addEventListener('change', async e => {
   try { S = await api('/api/dim/' + encodeURIComponent(r.dataset.lamp), {pct: +r.value}); LAMP_BUSY = 0; renderAll(); toast(`${lampName(r.dataset.lamp)}: ${r.value} %`); }
   catch (err) { LAMP_BUSY = 0; toast(err.data?.error || err.message, 1); }
 });
+const TIMER_COL = ['#ff5d6c', '#b794ff', '#4db8ff', '#2dd4bf'];  // Infrarot rot, UVA violett, …
+function timerRows(now) {  // Zeitschaltungen (Infrarot, UVA …) unter dem Lichtzyklus, gleiche 24-h-Skala
+  const T = Object.entries(S.outputs).filter(([, o]) => o.timer);
+  if (!T.length) return '';
+  return `<div style="margin-top:16px;border-top:1px solid var(--line);padding-top:6px">` + T.map(([n, o], k) => {
+    const t = o.timer, c = /infra|ir/i.test(n + (o.info.label || '')) ? TIMER_COL[0] : /uv/i.test(n + (o.info.label || '')) ? TIMER_COL[1] : TIMER_COL[2 + k % 2];
+    const segs = []; let st = null;
+    for (let m = 0; m <= 1440; m++) { const on = m < 1440 && timerOn(t, m); if (on && st === null) st = m; if (!on && st !== null) { segs.push([st, m]); st = null; } }
+    let next = null;  // nächster Schaltzeitpunkt (bis 24 h voraus)
+    const cur = timerOn(t, now);
+    for (let d = 1; d <= 1440; d++) if (timerOn(t, (now + d) % 1440) !== cur) { next = hm(now + d); break; }
+    const state = o.ok === false ? '<span style="color:var(--bad)">nicht erreichbar</span>' : `<b style="color:${o.state ? c : 'var(--mute)'}">${o.state ? 'an' : 'aus'}</b>`;
+    return `<div style="margin-top:10px"><div class="row" style="gap:6px"><b>${esc(timerName(n, o))}</b><span class="sp"></span><span class="sub">${state}${o.mode !== 'auto' ? ' · von Hand' : !t.windows.length ? ' · kein Zeitplan' : next ? ` · ${cur ? 'aus' : 'an'} um ${next}` : ''}</span></div>
+      <div class="cyc tm" style="--tc:${c}">${segs.map(([a, b]) => `<i style="left:${a / 14.4}%;width:${Math.max(.4, (b - a) / 14.4)}%"></i>`).join('')}<u style="left:${now / 14.4}%"></u></div></div>`;
+  }).join('') + '</div>';
+}
 function renderIrrMini() {
   const i = S.irrigation, f = t => t ? t.replace('T', ' ').slice(5, 16) : '–';
   const st = !i.available ? 'Keine Pumpe' : i.running ? 'läuft …' : i.pump_mode === 'off' ? 'Pumpe aus' : !i.enabled ? 'Automatik aus' : 'Bereit';

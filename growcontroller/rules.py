@@ -245,6 +245,11 @@ def rh_at(t, ah):
     return ah * (273.15 + t) / (6.112 * math.exp(17.67 * t / (t + 243.5)) * 2.1674)
 
 
+def too_cold(cfg, temp, t_target):
+    """Kälteschutz: Zelt unter Soll-Temperatur -> Abluft entfeuchtet nicht (sie zieht kühlere Raumluft nach)."""
+    return cfg.get("cold_protect", True) and temp is not None and t_target is not None and temp < t_target
+
+
 def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=None, active=(), dehum_min=0, ff=None):
     """Abluft-Leistung in W + Hinweise, was per Abluft nicht erreichbar ist.
 
@@ -276,6 +281,12 @@ def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=No
                               "tent_ah": round(abs_hum(temp, hum), 2), "useless": floor_h >= hum})
     ft = (temp - t_goal) / cfg["temp_band"] if temp is not None else 0
     fh = (hum - h_goal) / cfg["hum_band"] if hum is not None else 0
+    if too_cold(cfg, temp, t_target) and fh > 0:
+        # Kälteschutz: zu kalt -> Feuchte übernimmt der Entfeuchter (seine Abwärme hilft sogar); nur bei sehr hoher
+        # Feuchte (über Ziel + 2 Bänder) lüftet die Abluft den Überschuss trotzdem (Schimmelschutz)
+        fh = max(0.0, (hum - h_goal - 2 * cfg["hum_band"]) / cfg["hum_band"])
+        ff.pop("hum", None)
+        notes.append({"key": "cold", "temp": temp, "target": t_target, "assist": fh > 0})
     # Gerätekopplung (Interlock): Abluft arbeitet nicht gegen Entfeuchter, Befeuchter oder Heizung.
     keep_t = cfg.get("temp_priority", True)  # zu heiß -> Abluft darf trotzdem hoch
     if "dehumidifier" in active and cfg.get("interlock_dehum", True):

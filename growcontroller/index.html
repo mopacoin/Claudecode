@@ -322,6 +322,7 @@ const FORMS = {
     {k: 'dehum_assist_min', l: 'Abluft hilft dem Entfeuchter nach (0 = nie)', u: 'min', step: 1},
     {k: 'interlock_hum', l: 'Befeuchter läuft → Abluft auf Grundlast', t: 'bool'}, {k: 'interlock_heat', l: 'Heizung läuft → Abluft auf Grundlast', t: 'bool'},
     {k: 'temp_priority', l: 'Temperatur hat Vorrang (zu heiß → Abluft darf trotzdem hoch)', t: 'bool'},
+    {k: 'cold_protect', l: 'Kälteschutz: unter Soll-Temperatur entfeuchtet die Abluft nicht (Entfeuchter übernimmt)', t: 'bool'},
     {k: 'ramp_w_min', l: 'Sanfte Rampe: max. Änderung (0 = aus)', u: 'W/min', step: 1},
     {k: 'auto_learn', l: 'Kennlinie im Betrieb automatisch nachlernen (braucht Leistungsmessung)', t: 'bool'},
     {k: 'intake_pct', l: 'Zuluft an ab Abluft-Leistung (0 = Zuluft folgt Lüfterbedarf)', u: '%', step: 5},
@@ -643,6 +644,7 @@ function stateText(o) {
   if (o.mode === 'manual') return '<span style="color:var(--warn)">Kalibrier-Test</span>';
   if (o.watts == null) return '–';
   const il = (S.exhaust?.interlock || [])[0], dev = {dehumidifier: 'Entfeuchter', humidifier: 'Befeuchter', heater: 'Heizung'};
+  if (S.exhaust?.cold && o.mode === 'auto') return `<span style="color:var(--warn)">Kälteschutz${S.exhaust.cold.assist ? ' – lüftet nur Feuchte-Spitze' : ' – Grundlast'}</span>`;
   if (il && o.mode === 'auto') return `<span style="color:var(--warn)">${il.assist ? 'hilft ' + dev[il.dev] : 'gekoppelt: ' + dev[il.dev] + ' läuft'}</span>`;
   return o.watts <= CFG.values.exhaust.min_w + 0.5 ? 'Grundlast' : (S.is_day ? o.watts >= CFG.values.exhaust.max_w - 0.5 : o.watts >= CFG.values.exhaust.max_w_night - 0.5) ? 'Maximum' : 'Regelt';
 }

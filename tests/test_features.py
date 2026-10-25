@@ -257,3 +257,36 @@ class TestDailyReport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestColdProtection(unittest.TestCase):
+    """Zu kalt -> Abluft entfeuchtet nicht (zieht kalte Raumluft), Entfeuchter übernimmt."""
+    def setUp(self):
+        from growcontroller import settings
+        self.ex = dict(settings.DEFAULTS["exhaust"], room_aware=False)   # min 22 W, max 85 W, hum_band 10
+
+    def plan(self, temp, hum, **kw):
+        return rules.exhaust_plan({**self.ex, **kw}, True, temp, hum, 24, 55)
+
+    def test_cold_keeps_base_load(self):
+        w, notes = self.plan(21.8, 62)                     # 2,2 °C zu kalt, 7 % zu feucht
+        self.assertEqual(w, self.ex["min_w"])
+        self.assertEqual([n["key"] for n in notes], ["cold"])
+
+    def test_warm_enough_dries_with_exhaust(self):
+        self.assertGreater(self.plan(24.5, 62)[0], self.ex["min_w"])
+
+    def test_very_humid_still_vents_the_peak(self):
+        w, notes = self.plan(21.8, 80)                     # über Ziel + 2 Bänder (75 %) -> Schimmelschutz
+        self.assertGreater(w, self.ex["min_w"])
+        self.assertTrue(notes[0]["assist"])
+
+    def test_can_be_switched_off(self):
+        self.assertGreater(self.plan(21.8, 62, cold_protect=False)[0], self.ex["min_w"])
+
+    def test_dehumidifier_takes_over_when_cold(self):
+        from growcontroller import settings
+        cl = dict(settings.DEFAULTS["climate"], temp_day=24, hum_day=55, hum_hyst=5)
+        ctx = {"devices": {"dehumidifier": {"power_w": 250}}, "exhaust": {"can_dry": False}, "trend": {}}
+        w, info = rules.smart_climate(cl, True, 21.8, 62, {}, datetime(2026, 10, 25, 14), ctx)
+        self.assertTrue(w["dehumidifier"])

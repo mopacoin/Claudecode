@@ -374,6 +374,11 @@ class Controller:
         """Hinweis ins Ereignisprotokoll, wenn die Raumluft eine Grenze setzt (nur bei Änderung)."""
         notes_all, notes = notes, [n for n in notes if n["key"] in ("temp", "hum")]
         self.exhaust_interlock = [n for n in notes_all if n["key"] == "interlock"]
+        cold = next((n for n in notes_all if n["key"] == "cold"), None)
+        if bool(cold) != bool(getattr(self, "exhaust_cold", None)):
+            self.event("system", "Kälteschutz: Zelt unter Soll – Abluft entfeuchtet nicht, Entfeuchter übernimmt" if cold
+                       else "Kälteschutz aus – Zelt wieder auf Soll-Temperatur")
+        self.exhaust_cold = cold
         old = {n["key"] for n in self.exhaust_notes}
         new = {n["key"] for n in notes}
         what = {"temp": "Temperatur", "hum": "Luftfeuchte"}
@@ -622,7 +627,9 @@ class Controller:
                 need_w = rules.watts_for_effect(curve, goal_ah - room_ah, ex["min_w"])
             else:      # noch nichts gelernt: nur bei deutlich trockenerer Raumluft
                 can, need_w = rules.rh_at(t, room_ah) + 5 <= h_target, None
-            exi = {"can_dry": can and now_w < top - 3, "extra_w": round(max(0.0, (need_w or top) - now_w), 1)}
+            cold = rules.too_cold(ex, t, self.effective_climate(day)["temp_day" if day else "temp_night"])
+            exi = {"can_dry": can and now_w < top - 3 and not cold,  # zu kalt: Abluft soll nicht entfeuchten
+                   "extra_w": round(max(0.0, (need_w or top) - now_w), 1)}
         return {"trend": self._trend(), "devices": devs, "exhaust": exi, "has_dehum": self.has_dehum,
                 "waited_min": (time.monotonic() - self._wait) / 60 if self._wait else 0}
 
@@ -895,7 +902,7 @@ class Controller:
                 "readings": self.readings, "vpd": self.vpd(), "stale": self.stale(), "is_day": day,
                 "targets": {"temp": cl[f"temp_{p}"], "hum": cl[f"hum_{p}"], "vpd": self.cfg["climate"][f"vpd_{p}"],
                             "control": cl["control"]},
-                "exhaust": {"notes": self.exhaust_notes, "interlock": getattr(self, "exhaust_interlock", []),
+                "exhaust": {"notes": self.exhaust_notes, "interlock": getattr(self, "exhaust_interlock", []), "cold": getattr(self, "exhaust_cold", None),
                             "measured_w": self.fresh.get("exhaust_w"),
                             "cal": self.cal,
                             "learned": sum(1 for v in self.learn.values() if v[2] >= 3),

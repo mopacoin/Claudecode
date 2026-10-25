@@ -438,8 +438,11 @@ def smart_climate(cfg, day, temp, hum, cur, now, ctx):
     if "dehumidifier" in devs:
         d = devs["dehumidifier"]
         if cur.get("dehumidifier"):
-            on = not (hf <= ht or hum <= ht - hh)
-            msg = f"läuft bis Prognose ≤ {ht:g} %" if on else f"aus – Prognose {hf:.0f} % erreicht Ziel"
+            # Aus erst nach der TATSÄCHLICHEN Feuchte: die Prognose fällt durch die eigene Wirkung sofort unter das
+            # Ziel und hat ihn sonst nach wenigen Minuten wieder abgeschaltet (Takten im Mindestschaltzeit-Rhythmus)
+            stop = ht - hh / 2
+            on = hum > stop
+            msg = f"läuft bis Feuchte < {stop:.1f} %" if on else f"aus – Feuchte {hum:.0f} % unter {stop:.1f} %"
             if on and d.get("ah") is not None and d.get("n", 0) >= 2 and d["ah"] > -0.2:
                 msg += " · zeigt kaum Wirkung (Tank voll?)"
         elif hum >= ht + 2 * hh:

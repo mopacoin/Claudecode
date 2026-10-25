@@ -23,10 +23,23 @@ class TestSmartRules(unittest.TestCase):
         self.assertFalse(dec(25, 66, trend={"dT": 0, "dAH": -3.0})[0]["dehumidifier"])   # über Grenze, fällt aber schon
         self.assertTrue(dec(25, 71, trend={"dT": 0, "dAH": -3.0})[0]["dehumidifier"])    # weit drüber: sicher an
 
-    def test_predictive_off(self):
+    def test_runs_until_actual_humidity_no_chatter(self):
         on = {"dehumidifier": True}
         self.assertTrue(dec(25, 62, on)[0]["dehumidifier"])
-        self.assertFalse(dec(25, 62, on, trend={"dT": 0, "dAH": -3.0})[0]["dehumidifier"])  # erreicht Ziel gleich -> aus
+        # früher: Prognose fiel durch die eigene Wirkung unter das Ziel -> aus -> 3 min später wieder an (Takten)
+        self.assertTrue(dec(25, 62, on, trend={"dT": 0, "dAH": -3.0})[0]["dehumidifier"])
+        self.assertTrue(dec(25, 58, on, trend={"dT": 0, "dAH": -3.0})[0]["dehumidifier"])   # noch über 57,5 %
+        w, info = dec(25, 57, on)
+        self.assertFalse(w["dehumidifier"])                                                    # Ziel - halbe Hysterese
+        self.assertIn("unter 57.5 %", info["reasons"]["dehumidifier"])
+
+    def test_compressor_protection(self):
+        from growcontroller import outputs
+        _, outs, _ = outputs.create_all({"outputs": {"dehumidifier": {"type": "gpio", "pin": 5, "min_switch_s": 180},
+                                                     "dehu2": {"type": "gpio", "pin": 6, "role": "dehumidifier",
+                                                               "compressor_protect": False}}})
+        self.assertEqual(outs["dehumidifier"].min_switch_s, 600)
+        self.assertEqual(outs["dehu2"].min_switch_s, 0)
 
     def test_exhaust_preferred_when_cheaper(self):
         w, info = dec(25, 67, ex={"can_dry": True, "extra_w": 20})

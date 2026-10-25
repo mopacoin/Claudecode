@@ -6,6 +6,7 @@ import logging
 from . import backends
 
 log = logging.getLogger("grow.outputs")
+COMPRESSOR_MIN_S = 600   # Entfeuchter: Mindestlauf-/Mindestpausenzeit
 MANUAL = "manual"  # Rolle ohne Automatik: nur Ein/Aus von Hand, wird beim Start/Beenden nicht geschaltet
 
 
@@ -139,6 +140,9 @@ def create_all(cfg):
         c = dict(c)
         typ = c.pop("type", "gpio")
         common = {k: c.pop(k) for k in ("role", "min_switch_s", "max_on_s", "safe_state") if k in c}
+        if (common.get("role") or name) == "dehumidifier" and c.pop("compressor_protect", True):
+            # Kompressorschutz: mindestens 10 min an bzw. aus (abschaltbar mit "compressor_protect": false)
+            common["min_switch_s"] = max(common.get("min_switch_s", 0), COMPRESSOR_MIN_S)
         common["proportional"] = bool(c.pop("proportional", typ == "mqtt_servo"))
         secret = ("key", "local_key", "password")
         common["info"] = {"type": typ, **{k: v for k, v in c.items() if k not in secret}, **{k: common[k] for k in ("min_switch_s", "max_on_s") if k in common}}

@@ -51,6 +51,12 @@ def make_handler(ctl, token):
             rng = q.get("range", ["1h"])[0]
             if u.path == "/api/status":
                 self._send(200, ctl.status())
+            elif u.path in ("/api/stats", "/api/energy"):
+                try:
+                    days = int(q.get("days", ["30" if u.path == "/api/stats" else "7"])[0])
+                except ValueError:
+                    days = 7
+                self._send(200, ctl.daily_stats(days) if u.path == "/api/stats" else ctl.energy(days))
             elif u.path == "/api/report":  # letzter gesendeter Bericht + aktuelle Auswertung
                 title, text = ctl.daily_report()
                 self._send(200, {"last": ctl.report_last, "preview": {"title": title, "text": text}})
@@ -134,6 +140,9 @@ def make_handler(ctl, token):
             if parts == ["api", "report", "send"]:  # Tagesbericht sofort senden
                 err = ctl.send_report_now()
                 return self._send(400, {"error": err}) if err else self._send(200, {"ok": True})
+            if parts == ["api", "energy"]:
+                err = ctl.set_energy(body)
+                return self._send(400, {"error": err}) if err else self._send(200, ctl.energy(int(body.get("days", 7))))
             if parts == ["api", "notify", "test"]:
                 err = ctl.notifier.send_now("Growcontroller", "Test-Benachrichtigung – kommt an ✓")
                 return self._send(400, {"error": err}) if err else self._send(200, {"ok": True})

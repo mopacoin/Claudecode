@@ -123,6 +123,11 @@ button.sec{background:var(--card2);color:var(--text);border:1px solid var(--line
 .hq{display:inline-grid;place-items:center;width:16px;height:16px;margin-left:6px;border-radius:50%;background:var(--card2);color:var(--mute);font-size:11px;font-weight:700;cursor:pointer;vertical-align:1px}
 .hq:hover{color:var(--text)}.hlp{display:none;font-size:12.5px;color:var(--mute);margin:-2px 0 6px;line-height:1.45}.hlpon .hlp{display:block}
 .reptext{white-space:pre-wrap;font-size:13.5px;line-height:1.6}
+.sttab{display:grid;gap:5px;margin-top:6px}.sthead,.strow{display:grid;grid-template-columns:var(--cols);gap:10px;align-items:center}
+.sthead{font-size:12px;color:var(--mute)}.stbar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--card2)}.stbar i{display:block;height:100%}
+.etable{display:grid;gap:8px;margin-top:6px}.erow{display:grid;grid-template-columns:minmax(90px,1.1fr) 1.4fr 88px 64px 120px 80px;gap:10px;align-items:center}
+.ebar{height:8px;border-radius:4px;background:var(--card2);overflow:hidden}.ebar i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2))}
+@media(max-width:700px){.erow{grid-template-columns:1fr 70px 56px}.erow .ebar,.erow>span.sub{display:none}}
 button.danger{color:var(--bad)}.preset .row{gap:8px}.preset .row button{padding:8px 13px;font-size:13px}
 .newcard{display:grid;place-items:center;min-height:200px;border:2px dashed var(--line);background:none;color:var(--mute);cursor:pointer;font:inherit;border-radius:var(--r);transition:.15s}
 .newcard:hover{border-color:var(--acc);color:var(--text);background:var(--card)}.newcard b{display:block;font-size:34px;line-height:1;margin-bottom:6px;color:var(--acc)}
@@ -227,6 +232,11 @@ tr+tr td{border-top:1px solid var(--line)}
         <p class="hint mt">Ein Zyklus bündelt Klima-, Licht- und Bewässerungswerte. Die eingebauten sind nur Richtwerte – erstelle eigene Zyklen oder dupliziere einen und passe ihn an. Mit einer Dauer wechselt der Controller automatisch zum Folge-Zyklus.</p>
         <div class="grid g4" id="presets"></div>
       </section>
+      <section class="tab" id="tab-analysis">
+        <div class="card" id="vpdMatrix"></div>
+        <div class="card mt" id="statsCard"></div>
+        <div class="card mt" id="energyCard"></div>
+      </section>
       <section class="tab" id="tab-system">
         <div class="grid g3">
           <div class="card"><h3>System</h3><div id="sys"></div></div>
@@ -252,6 +262,7 @@ tr+tr td{border-top:1px solid var(--line)}
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const P = { // Strichsymbole (24x24)
+  chart: '<path d="M3 20h18"/><path d="M6 16v-5"/><path d="M11 16V6"/><path d="M16 16v-8"/><path d="M21 16v-3"/>',
   grid: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
   cpu: '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/>',
   thermo: '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>',
@@ -275,7 +286,7 @@ const LABEL = {light: 'Licht', fan: 'Lüfter', heater: 'Heizung', humidifier: 'B
   pump: 'Pumpe', zuluft: 'Zuluft', abluft_servo: 'Abluft-Servo'};
 const TABS = [['overview', 'Übersicht', 'Übersicht', 'grid'], ['devices', 'Geräte', 'Geräte', 'cpu'], ['climate', 'Klima', 'Klima', 'thermo'],
   ['light', 'Licht', 'Licht', 'sun'], ['irrigation', 'Bewässerung', 'Wasser', 'drop'], ['alarms', 'Alarme', 'Alarme', 'bell'],
-  ['cycle', 'Zyklus', 'Zyklus', 'leaf'], ['system', 'System', 'System', 'sliders']];
+  ['cycle', 'Zyklus', 'Zyklus', 'leaf'], ['analysis', 'Auswertung', 'Auswertung', 'chart'], ['system', 'System', 'System', 'sliders']];
 let SERIES = [['temp', 'Temperatur', '°C', '--temp'], ['hum', 'Luftfeuchte', '%', '--hum'], ['vpd', 'VPD', 'kPa', '--vpd'],
   ['room_temp', 'Raum Temp.', '°C', '--temp2'], ['room_hum', 'Raum Feuchte', '%', '--hum2']];
 const RANGES = [['1h', '1 Std'], ['6h', '6 Std'], ['24h', '24 Std'], ['7d', '7 Tage']];
@@ -375,6 +386,7 @@ function showTab(id) {
   document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === id));
   location.hash = id; scrollTo(0, 0);
   if (id === 'overview') loadHistory(); if (id === 'system' || id === 'alarms') loadEvents();
+  if (id === 'analysis' && typeof loadAnalysis === 'function') loadAnalysis();
 }
 document.addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (b) showTab(b.dataset.t); });
 $('#alarmPill').onclick = () => S?.alarms.length && showTab('alarms');

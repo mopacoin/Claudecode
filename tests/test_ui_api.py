@@ -53,3 +53,46 @@ class TestHealthAndReport(unittest.TestCase):
             ctl.notifier.send_now = lambda title, msg, prio="default": None
             self.assertIsNone(ctl.send_report_now())
             self.assertIn("Grow-Tagesbericht", make(tmp).report_last["title"])   # übersteht Neustart
+
+
+class TestStatsAndEnergy(unittest.TestCase):
+    def write_day(self, tmp, day, rows, fields):
+        import csv, os
+        with open(os.path.join(tmp, f"log-{day}.csv"), "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fields)
+            w.writeheader()
+            w.writerows(rows)
+
+    def test_daily_stats_and_energy(self):
+        from growcontroller import outputs
+        with tempfile.TemporaryDirectory() as tmp:
+            day = (datetime.now().date() - timedelta(days=1)).isoformat()
+            start = datetime.fromisoformat(day + "T00:00:00")
+            rows = []
+            for i in range(1440):   # ganzer Tag: Temperatur 12 h im Ziel, 12 h zu kalt; Entfeuchter 6 h an
+                t = start + timedelta(minutes=i)
+                rows.append({"t": t.isoformat(timespec="seconds"), "temp": 25 if i < 720 else 18, "hum": 60, "vpd": 1.0,
+                             "dehumidifier": 1 if i < 360 else 0, "exhaust_w": 30})
+            self.write_day(tmp, day, rows, ["t", "temp", "hum", "vpd", "dehumidifier", "exhaust_w"])
+            ctl = make(tmp, light={"on": "00:00", "off": "00:00"},
+                       climate={"control": "temp_hum", "temp_day": 25, "temp_hyst": 1, "hum_day": 60, "hum_hyst": 5,
+                                "vpd_day": 1.0, "vpd_hyst": 0.1})
+
+            class Rec:
+                def set(self, v): pass
+                def close(self): pass
+            ctl.outs["dehumidifier"] = outputs.Output("dehumidifier", Rec(), role="dehumidifier")
+            st = {d["day"]: d for d in ctl.daily_stats(2)["days"]}[day]
+            self.assertEqual((st["temp"]["in"], st["temp"]["lo"], st["hum"]["in"]), (50, 50, 100))
+            self.assertEqual(st["all"], 50)
+            en = ctl.energy(2)
+            dev = {d["name"]: d for d in en["devices"]}["dehumidifier"]
+            i = en["days"].index(day)
+            self.assertEqual((dev["w"], dev["source"], dev["on_min"][i]), (250.0, "Annahme", 360))
+            self.assertAlmostEqual(dev["kwh"][i], 1.5)                     # 6 h × 250 W
+            self.assertIsNone(ctl.set_energy({"price_ct": 40, "power": {"dehumidifier": 300}}))
+            en = ctl.energy(2)
+            dev = {d["name"]: d for d in en["devices"]}["dehumidifier"]
+            self.assertEqual((dev["w"], dev["source"]), (300.0, "eingetragen"))
+            self.assertAlmostEqual(en["cost_eur"][i], round(1.8 * 0.40, 2))
+            self.assertIn("0…200", ctl.set_energy({"price_ct": 999}))

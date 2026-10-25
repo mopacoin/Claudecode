@@ -95,3 +95,38 @@ def build(rows, climate, light, extra=None):
     else:
         title = f"Grow-Tagesbericht: nur {pct(*together)} % gleichzeitig im Ziel"
     return title, "\n".join(lines), all_good
+
+
+def shares(rows, climate, light):
+    """Anteile im Ziel je Wert (für die Statistik-Seite): {key: {"in", "lo", "hi", "n"} in %, "all": %, "n": Minuten}.
+    Gleiche Regeln wie der Tagesbericht: Soll ± Hysterese je Tag/Nacht, im VPD-Modus ohne Feuchte."""
+    keys = ["temp", "vpd"] if climate.get("control") == "vpd" else ["temp", "hum", "vpd"]
+    st = {k: [0, 0, 0, 0] for k in keys}   # in, lo, hi, n
+    together = [0, 0]
+    for r in rows:
+        p = "day" if rules.light_on(light, datetime.fromisoformat(r["t"])) else "night"
+        ok_all, have_all = True, True
+        for k in keys:
+            v = r.get(k)
+            if v is None:
+                have_all = False
+                continue
+            target, hyst = climate[f"{k}_{p}"], climate[f"{k}_hyst"]
+            s = st[k]
+            s[3] += 1
+            if v < target - hyst:
+                s[1] += 1
+                ok_all = False
+            elif v > target + hyst:
+                s[2] += 1
+                ok_all = False
+            else:
+                s[0] += 1
+        if have_all:
+            together[0] += ok_all
+            together[1] += 1
+    pct = lambda a, b: round(100 * a / b) if b else None
+    out = {k: {"in": pct(s[0], s[3]), "lo": pct(s[1], s[3]), "hi": pct(s[2], s[3]), "n": s[3]} for k, s in st.items()}
+    out["all"] = pct(*together)
+    out["n"] = len(rows)
+    return out

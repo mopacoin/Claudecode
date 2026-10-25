@@ -1043,6 +1043,102 @@ class Controller:
             title, text, _ok = report.build(rows, self.cfg["climate"], self.cfg["light"], extra)
         return title, text
 
+    # --- Auswertung über Tage (Statistik, Energie) aus den CSV-Logs ---
+    def _day_rows(self, day):
+        """Minutenwerte eines Kalendertags (JJJJ-MM-TT) aus data/log-<Tag>*.csv."""
+        rows = []
+        for path in sorted(glob.glob(self._p(f"log-{day}*.csv"))):
+            try:
+                with open(path, newline="") as f:
+                    rows += [r for r in (self._parse_row(x) for x in csv.DictReader(f)) if r]
+            except (OSError, csv.Error) as e:
+                log.warning("Verlauf %s: %s", path, e)
+        return sorted(rows, key=lambda r: r["t"])
+
+    def _days(self, days):
+        today = datetime.now().date()
+        return [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+
+    def daily_stats(self, days=30):
+        """Anteil der Zeit im Zielbereich je Tag (aktuelle Sollwerte). Vergangene Tage werden zwischengespeichert."""
+        from . import report
+        cache = self.__dict__.setdefault("_stat_cache", {})
+        today = datetime.now().date().isoformat()
+        cl, li = dict(self.cfg["climate"]), dict(self.cfg["light"])
+        key_cfg = json.dumps([cl, li], sort_keys=True)
+        out = []
+        for day in self._days(max(1, min(400, days))):
+            hit = cache.get(day)
+            if day != today and hit and hit[0] == key_cfg:
+                res = hit[1]
+            else:
+                rows = self._day_rows(day)
+                res = report.shares(rows, cl, li) if len(rows) >= 60 else None
+                if day != today:
+                    cache[day] = (key_cfg, res)
+            out.append({"day": day, **(res or {"n": 0})})
+        return {"days": out, "vpd_mode": cl.get("control") == "vpd"}
+
+    def _power_of(self, name, o):
+        """(Watt, Quelle) eines Ausgangs: eingetragen > config power_w > Annahme je Rolle > unbekannt."""
+        own = (self.saved.get("power") or {}).get(name)
+        if own is not None:
+            return float(own), "eingetragen"
+        if o.info.get("power_w") is not None:
+            return float(o.info["power_w"]), "config"
+        if o.role in DEV_POWER:
+            return float(DEV_POWER[o.role]), "Annahme"
+        return None, None
+
+    def energy(self, days=7):
+        """Verbrauch je Gerät und Tag in kWh: Laufzeit (Minuten an) × Leistung; Abluft gemessen (exhaust_w)."""
+        days = max(1, min(60, days))
+        dl = self._days(days)
+        per = {d: self._day_rows(d) for d in dl}
+        devs = []
+        for n, o in self.outs.items():
+            if o.proportional:
+                kwh = [round(sum(r.get("exhaust_w", 0) for r in per[d]) / 60 / 1000, 3) for d in dl]
+                devs.append({"name": n, "role": o.role, "w": None, "source": "gemessen" if any(kwh) else None, "kwh": kwh})
+                continue
+            w, src = self._power_of(n, o)
+            mins = [sum(1 for r in per[d] if r.get(n)) for d in dl]
+            devs.append({"name": n, "role": o.role, "w": w, "source": src, "on_min": mins,
+                         "kwh": [round(m * w / 60 / 1000, 3) if w is not None else None for m in mins]})
+        price = float((self.saved.get("energy") or {}).get("price_ct", 30))
+        tot = [round(sum(d["kwh"][i] or 0 for d in devs), 3) for i in range(len(dl))]
+        return {"days": dl, "devices": devs, "total_kwh": tot, "price_ct": price,
+                "cost_eur": [round(t * price / 100, 2) for t in tot]}
+
+    def set_energy(self, body):
+        """Strompreis und Geräteleistungen speichern. -> Fehlertext oder None"""
+        e = self.saved.setdefault("energy", {})
+        if "price_ct" in body:
+            try:
+                p = float(body["price_ct"])
+            except (TypeError, ValueError):
+                return "Strompreis als Zahl (ct/kWh)"
+            if not 0 <= p <= 200:
+                return "Strompreis 0…200 ct/kWh"
+            e["price_ct"] = p
+        for n, w in (body.get("power") or {}).items():
+            if n not in self.outs:
+                return f"Unbekanntes Gerät {n}"
+            pw = self.saved.setdefault("power", {})
+            if w in (None, ""):
+                pw.pop(n, None)
+                continue
+            try:
+                w = float(w)
+            except (TypeError, ValueError):
+                return f"Leistung von {n} als Zahl (W)"
+            if not 0 <= w <= 5000:
+                return f"Leistung von {n}: 0…5000 W"
+            pw[n] = w
+        with self.lock:
+            settings.save(self._p("settings.json"), self.saved)
+        return None
+
     def _events_since(self, since):
         """Ereignisse ab `since` aus data/events.jsonl (überdauert Neustarts, anders als die Liste im Speicher)."""
         try:

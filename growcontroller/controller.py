@@ -838,18 +838,21 @@ class Controller:
                 except OSError:
                     pass
 
-    def _rows(self, rng):
+    def _rows(self, rng, offset_h=0):
+        """Minutenwerte des Zeitraums; offset_h verschiebt das Fenster zurück (24 = gleicher Zeitraum gestern)."""
         hours = RANGES.get(rng, 1)
-        cutoff = (datetime.now() - timedelta(hours=hours)).isoformat(timespec="seconds")
-        rows = [r for r in self.minutes if r["t"] >= cutoff]
-        if hours == 1:  # gespeicherter Verlauf + frische Werte im Regeltakt (auch direkt nach einem Neustart)
+        end = datetime.now() - timedelta(hours=offset_h)
+        cutoff = (end - timedelta(hours=hours)).isoformat(timespec="seconds")
+        stop = end.isoformat(timespec="seconds")
+        rows = [r for r in self.minutes if cutoff <= r["t"] <= stop]
+        if hours == 1 and not offset_h:  # gespeicherter Verlauf + frische Werte im Regeltakt (auch direkt nach einem Neustart)
             last = rows[-1]["t"] if rows else ""
             rows += [r for r in self.live if r["t"] > last]
         return rows
 
-    def history(self, rng="1h"):
+    def history(self, rng="1h", offset_h=0):
         with self.lock:
-            rows = self._rows(rng)
+            rows = self._rows(rng, offset_h)
         size = -(-len(rows) // MAX_POINTS) or 1
         out = []
         for i in range(0, len(rows), size):

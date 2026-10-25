@@ -334,6 +334,7 @@ const FORMS = {
     {k: 'start_date', l: 'Start des Zyklus', t: 'date'}]},
 };
 
+let histEv = [], histY = [], showY = false;
 let S = null, CFG = null, range = '1h', hist = [], shown = new Set(['temp', 'hum', 'vpd']), evFilter = '', hover = -1;
 let token = ''; try { token = localStorage.token || ''; } catch (e) {}
 
@@ -556,7 +557,8 @@ function renderHeader() {
 }
 
 // ---- Diagramm ----
-$('#rangeChips').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-r="${r}">${l}</button>`).join('');
+$('#rangeChips').innerHTML = RANGES.map(([r, l]) => `<button class="chip" data-r="${r}">${l}</button>`).join('')
+  + `<button class="chip" id="yChip" title="Gleicher Zeitraum gestern, gestrichelt">Gestern</button>`;
 function buildChips() { $('#seriesChips').innerHTML = SERIES.map(([k, l, u, c]) => `<button class="chip s" data-k="${k}" style="--c:var(${c})">${esc(l)}</button>`).join(''); }
 buildChips();
 const BASE_SERIES = SERIES.slice();
@@ -572,11 +574,18 @@ function soilSeries() {  // Bodenfeuchte und EC je Boden-Sensor (z. B. GGS 1, GG
   const form = $('#f-steering form');
   if (CFG && form && probes !== soilSeries.probes && !form.dataset.dirty) { soilSeries.probes = probes; buildForm('steering'); }
 }
-$('#rangeChips').onclick = e => { if (e.target.dataset.r) { range = e.target.dataset.r; loadHistory(); } };
+$('#rangeChips').onclick = e => {
+  if (e.target.id === 'yChip') { showY = !showY; loadHistory(); return; }
+  if (e.target.dataset.r) { range = e.target.dataset.r; loadHistory(); }
+};
 $('#seriesChips').onclick = e => { const k = e.target.dataset.k; if (!k) return; shown.has(k) ? shown.delete(k) : shown.add(k); drawAll(); };
 async function loadHistory() {
   document.querySelectorAll('#rangeChips .chip').forEach(b => b.classList.toggle('on', b.dataset.r === range));
-  try { hist = await api('/api/history?range=' + range); } catch (e) { return; }
+  $('#yChip')?.classList.toggle('on', showY);
+  try {
+    [hist, histEv, histY] = await Promise.all([api('/api/history?range=' + range), api('/api/events?range=' + range).catch(() => []),
+      showY ? api('/api/history?offset=24&range=' + range).catch(() => []) : Promise.resolve([])]);
+  } catch (e) { return; }
   drawAll(); if (S) renderOverview();
 }
 function sizeCanvas(cv, h) {
@@ -622,6 +631,18 @@ function chartLanes() {
   }));
   return lanes;
 }
+const tsOf = t => new Date(t).getTime();
+function xTime(ts, w) {  // x-Position nach Zeit statt Index (Ereignisse, "gestern")
+  const n = hist.length, t0 = tsOf(hist[0].t), t1 = tsOf(hist[n - 1].t);
+  return PAD.l + (t1 > t0 ? (ts - t0) / (t1 - t0) : 0) * (w - PAD.l - PAD.r);
+}
+const EV_COL = {alarm: '--bad', mode: '--warn', irrigation: '--hum', settings: '--vpd'};
+function chartEvents() {  // Ereignisse im sichtbaren Zeitraum (ohne Geräte-Schaltungen, die zeigen die Spuren)
+  if (hist.length < 2) return [];
+  const t0 = tsOf(hist[0].t), t1 = tsOf(hist[hist.length - 1].t);
+  return histEv.filter(e => EV_COL[e.kind] && tsOf(e.t) >= t0 && tsOf(e.t) <= t1)
+    .map(e => ({...e, ok: e.kind === 'alarm' && e.msg.startsWith('Behoben')}));
+}
 function drawChart() {
   const cv = $('#chart'); if (!cv.clientWidth) return;
   const lanes = chartLanes(), laneH = 6, laneGap = 4, lanesH = lanes.length ? lanes.length * (laneH + laneGap) + 6 : 0;
@@ -637,10 +658,13 @@ function drawChart() {
   const units = [...new Set(vis.map(s => s[2]))], scale = {};
   units.forEach(u => {
     const vals = [];
-    vis.filter(s => s[2] === u).forEach(([k]) => hist.forEach(r => { if (r[k] != null) vals.push(r[k]); const b = bandAt(k, r); if (b) vals.push(...b); }));
+    vis.filter(s => s[2] === u).forEach(([k]) => [...hist, ...histY].forEach(r => { if (r[k] != null) vals.push(r[k]); const b = bandAt(k, r); if (b) vals.push(...b); }));
     const lo = Math.min(...vals), hi = Math.max(...vals), m = (hi - lo) * .12 || 1; scale[u] = [lo - m, hi + m];
   });
   const Yof = u => y => PAD.t + (1 - (y - scale[u][0]) / (scale[u][1] - scale[u][0])) * H;
+  // Nachtphase (Licht aus) als dunklerer Hintergrund
+  g.fillStyle = rgba(cssv('--text'), .045);
+  for (let i = 0; i < n - 1; i++) if (!lightOnAt(hist[i].t)) g.fillRect(xAt(i, n, w), PAD.t, xAt(i + 1, n, w) - xAt(i, n, w) + .5, H);
   // Zielbänder zuerst (hinter den Kurven)
   vis.forEach(([k, , u, cv2]) => {
     const Y = Yof(u), up = [], dn = [];
@@ -660,6 +684,25 @@ function drawChart() {
     g.beginPath(); smooth(g, pts); g.lineTo(pts[pts.length - 1][0], bottom); g.lineTo(pts[0][0], bottom); g.closePath(); g.fillStyle = grad; g.fill();
     g.beginPath(); smooth(g, pts); g.strokeStyle = col; g.lineWidth = 2.4; g.lineJoin = g.lineCap = 'round'; g.stroke();
     if (hover >= 0 && hover < n && hist[hover][k] != null) { g.beginPath(); g.arc(xAt(hover, n, w), Y(hist[hover][k]), 4.5, 0, 7); g.fillStyle = cssv('--bg'); g.fill(); g.strokeStyle = col; g.lineWidth = 2.4; g.stroke(); }
+  });
+  // Gestern: gleiche Kurven 24 h früher, gestrichelt an der passenden Uhrzeit
+  if (showY && histY.length > 1) vis.forEach(([k, , u, cv2]) => {
+    const Y = Yof(u), pts = histY.filter(r => r[k] != null).map(r => [xTime(tsOf(r.t) + 864e5, w), Y(r[k])]);
+    if (pts.length < 2) return;
+    g.setLineDash([5, 5]); g.strokeStyle = rgba(cssv(cv2), .55); g.lineWidth = 1.6; g.beginPath(); smooth(g, pts); g.stroke(); g.setLineDash([]);
+  });
+  // Ereignisse: dicht beieinander liegende zu einem Marker bündeln (Farbe = wichtigstes), Linie nur bei Einzelnen
+  const RANK = {'--bad': 4, '--warn': 3, '--hum': 2, '--vpd': 1, '--ok': 0}, groups = [];
+  chartEvents().forEach(e => {
+    const x = xTime(tsOf(e.t), w), c = e.ok ? '--ok' : EV_COL[e.kind], last = groups[groups.length - 1];
+    if (last && x - last.x1 < 8) { last.x1 = x; last.n++; if (RANK[c] > RANK[last.c]) last.c = c; }
+    else groups.push({x0: x, x1: x, n: 1, c});
+  });
+  groups.forEach(gr => {
+    const x = (gr.x0 + gr.x1) / 2, col = cssv(gr.c);
+    if (gr.n === 1) { g.strokeStyle = rgba(col, .25); g.lineWidth = 1; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(x, PAD.t + 6); g.lineTo(x, bottom); g.stroke(); g.setLineDash([]); }
+    else { g.fillStyle = rgba(col, .18); g.fillRect(gr.x0 - 3, PAD.t, gr.x1 - gr.x0 + 6, 3); }   // Bereich vieler Ereignisse
+    g.fillStyle = col; g.beginPath(); g.moveTo(x - 4, PAD.t); g.lineTo(x + 4, PAD.t); g.lineTo(x, PAD.t + 6); g.closePath(); g.fill();
   });
   // Achsen: links erste, rechts zweite Einheit – in der Farbe der ersten Kurve dieser Einheit, Einheit oben
   units.slice(0, 2).forEach((u, idx) => {
@@ -700,6 +743,10 @@ $('#chart').onmousemove = e => {
   const r = hist[hover], tip = $('#tip');
   tip.innerHTML = `<b>${r.t.slice(5, 10)} ${r.t.slice(11, 16)}</b><br>` + SERIES.filter(s => shown.has(s[0]) && r[s[0]] != null)
     .map(([k, l, u, c]) => `<span style="color:var(${c})">●</span> ${l}: <b>${r[k]}</b> ${u}`).join('<br>')
+    + (() => { const ts = tsOf(r.t), half = (tsOf(hist[hist.length - 1].t) - tsOf(hist[0].t)) / Math.max(1, hist.length) * 1.5;
+        const near = chartEvents().filter(e => Math.abs(tsOf(e.t) - ts) <= half);
+        return near.slice(0, 4).map(e => `<br><span style="color:var(${e.ok ? '--ok' : EV_COL[e.kind]})">▼</span> ${e.t.slice(11, 16)} ${esc(e.msg)}`).join('')
+          + (near.length > 4 ? `<br><span class="sub">+ ${near.length - 4} weitere Ereignisse</span>` : ''); })()
     + chartLanes().map(L => `<br><span style="color:var(${L.col})">▬</span> ${esc(L.label)}: <b>${L.watts ? (r[L.key] != null ? Math.round(r[L.key]) + ' W' : '–') : r[L.key] ? 'an' : 'aus'}</b>`).join('');
   tip.style.display = 'block'; tip.style.left = (x > w / 2 ? x - tip.offsetWidth - 14 : x + 14) + 'px'; tip.style.top = '14px'; drawChart();
 };

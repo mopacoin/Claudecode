@@ -52,12 +52,22 @@ def make_handler(ctl, token):
             if u.path == "/api/status":
                 self._send(200, ctl.status())
             elif u.path == "/api/history":
-                self._send(200, ctl.history(rng))
+                try:
+                    off = max(0, min(24 * 30, int(q.get("offset", ["0"])[0])))
+                except ValueError:
+                    off = 0
+                self._send(200, ctl.history(rng, off))
             elif u.path == "/api/settings":
                 self._send(200, {"values": ctl.get_settings(), "spec": settings.SPEC,
                                  "presets": ctl.presets(), "colors": settings.PALETTE, "calibration": ctl.cal, "auth": bool(token)})
             elif u.path == "/api/events":
-                self._send(200, list(ctl.events)[-200:][::-1])
+                if "range" in q:  # für den Verlauf: alle Ereignisse des Zeitraums aus dem dauerhaften Protokoll
+                    from datetime import datetime, timedelta
+                    from .controller import RANGES
+                    since = (datetime.now() - timedelta(hours=RANGES.get(rng, 1))).isoformat(timespec="seconds")
+                    self._send(200, ctl._events_since(since)[-1000:])
+                else:
+                    self._send(200, list(ctl.events)[-200:][::-1])
             elif u.path == "/api/export.csv":
                 self._send(200, ctl.export_csv(rng).encode(), "text/csv; charset=utf-8",
                            {"Content-Disposition": f'attachment; filename="grow-{rng}.csv"'})

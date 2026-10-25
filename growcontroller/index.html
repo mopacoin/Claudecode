@@ -391,6 +391,25 @@ function spark(key, col) {
     <path d="${line} L200 38 L0 38Z" fill="url(#sp${key})"/><path d="${line}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 const hm = min => { const m = ((min % 1440) + 1440) % 1440; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+// VPD wie in rules.py: SVP(Blatttemperatur) - Dampfdruck der Luft (Tetens), Blatt = Luft + leaf_offset
+const svpK = t => 0.6108 * Math.exp(17.27 * t / (t + 237.3));
+const vpdOf = (t, rh, leaf) => svpK(t + leaf) - rh / 100 * svpK(t);
+function vpdNeeds(temp, hum, target, leaf, tTarget) {
+  // nötige Luftfeuchte bei gegebener Temperatur bzw. nötige Temperatur bei gegebener Luftfeuchte
+  const rhAt = t => t == null ? null : (svpK(t + leaf) - target) / svpK(t) * 100;
+  let tAt = null;
+  if (hum != null) { let lo = 0, hi = 45; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; vpdOf(m, hum, leaf) < target ? lo = m : hi = m; } tAt = (lo + hi) / 2; }
+  return {rh: rhAt(temp), t: tAt, rhSoll: rhAt(tTarget)};
+}
+function vpdHint(r, t, cl) {
+  if (t.vpd == null || (r.temp == null && r.hum == null)) return '';
+  const n = vpdNeeds(r.temp, r.hum, t.vpd, cl.leaf_offset ?? -2, t.temp), ok = (v, a, b) => v != null && v >= a && v <= b;
+  const parts = [];
+  if (ok(n.rh, 1, 99)) parts.push(`<b>${Math.round(n.rh)} %</b> bei ${r.temp.toFixed(1)} °C`);
+  if (ok(n.t, 5, 40)) parts.push(`<b>${n.t.toFixed(1)} °C</b> bei ${Math.round(r.hum)} %`);
+  const soll = ok(n.rhSoll, 1, 99) && t.temp != null ? `<div class="t">bei Soll ${t.temp} °C: <b>${Math.round(n.rhSoll)} %</b> Luftfeuchte</div>` : '';
+  return parts.length || soll ? `<div class="t" style="margin-top:4px">Für ${t.vpd} kPa: ${parts.join(' · oder ')}</div>${soll}` : '';
+}
 function renderOverview() {
   const r = S.readings, st = S.stats, t = S.targets, c = CFG?.values || {}, cl = c.climate || {}, al = c.alarms || {};
   const T = [
@@ -403,7 +422,7 @@ function renderOverview() {
       <div class="gmeta"><div class="state"><i></i>${STATE_TXT[sc]}</div>
       <div class="t">Soll <b>${tg} ${u}</b>${key === 'vpd' && t.control !== 'vpd' ? ' <small>(Info)</small>' : ''}</div>
       <div class="t">${v == null ? '–' : '<b>' + v.toFixed(d) + '</b> ' + u + ' jetzt'}</div>
-      ${s ? `<div class="t">24 h: ${s.min}–${s.max} · Ø ${s.avg}</div>` : ''}</div></div>${spark(key, col)}</div>`;
+      ${s ? `<div class="t">24 h: ${s.min}–${s.max} · Ø ${s.avg}</div>` : ''}${key === 'vpd' ? vpdHint(r, t, cl) : ''}</div></div>${spark(key, col)}</div>`;
   }).join('');
   $('#zmark').style.left = Math.min(100, (S.vpd ?? 0) / 2 * 100) + '%';
   $('#banner').innerHTML = (S.alarms.length ? `<div class="banner">${ico('bell')}<div>${S.alarms.map(a => `<div><b>${esc(a.msg)}</b></div>`).join('')}</div></div>` : '')

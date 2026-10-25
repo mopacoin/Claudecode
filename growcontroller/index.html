@@ -531,10 +531,22 @@ function renderIrrMini() {
     <div class="sub" style="margin-top:8px">Zuletzt: <b style="color:var(--text)">${f(i.last)}</b></div><div class="sub">Nächste: <b style="color:var(--text)">${f(i.next)}</b></div>
     <button class="sec" style="margin-top:12px" data-t="devices">Zu den Geräten</button>`;
 }
+function lightPhase() {  // Begrüßung nach der Lichtphase der Pflanzen (nicht nach der Uhrzeit), mit Restzeit
+  const li = CFG?.values?.light, now = +S.time.slice(11, 13) * 60 + +S.time.slice(14, 16);
+  if (!li || li.enabled === false) return {greet: 'Hallo', text: 'Licht aus (Zeitplan deaktiviert)'};
+  const mm = s => +s.slice(0, 2) * 60 + +s.slice(3, 5), on = mm(li.on), dur = ((mm(li.off) - on) % 1440 + 1440) % 1440 || 1440;
+  const since = ((now - on) % 1440 + 1440) % 1440, dt = m => m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
+  if (since < dur) {
+    const left = dur - since;
+    return {greet: since < 120 ? 'Guten Morgen' : left <= 120 ? 'Guten Abend' : 'Guten Tag', text: `Licht an · aus in ${dt(left)} (${li.off})`};
+  }
+  const until = 1440 - since;
+  return {greet: 'Gute Nacht', text: `Nachtphase · Licht an in ${dt(until)} (${li.on})`};
+}
 function renderHeader() {
-  const h = +S.time.slice(11, 13), g = h < 5 ? 'Gute Nacht' : h < 11 ? 'Guten Morgen' : h < 17 ? 'Guten Tag' : h < 22 ? 'Guten Abend' : 'Gute Nacht';
-  const act = Object.values(S.outputs).filter(o => o.state).length;
-  $('#greet').textContent = g; $('#greetSub').textContent = `${act} von ${Object.keys(S.outputs).length} Geräten aktiv · ${S.is_day ? 'Tagphase' : 'Nachtphase'}`;
+  const ph = lightPhase(), act = Object.values(S.outputs).filter(o => o.state).length;
+  $('#greet').textContent = ph.greet;
+  $('#greetSub').textContent = `${ph.text} · ${act} von ${Object.keys(S.outputs).length} Geräten aktiv`;
   const n = S.alarms.length, p = $('#alarmPill');
   p.innerHTML = `<span class="d"></span>${n ? `${n} Alarm${n > 1 ? 'e' : ''}` : 'Alles in Ordnung'}`; p.className = 'chip ' + (n ? 'alarm' : 'good');
   const gr = S.grow, sp = $('#stagePill');
@@ -579,26 +591,95 @@ function drawAll() {
   document.querySelectorAll('#seriesChips .chip').forEach(b => { b.classList.toggle('on', shown.has(b.dataset.k)); b.style.display = hist.some(r => r[b.dataset.k] != null) ? '' : 'none'; });
   drawChart(); drawTimeline();
 }
+// Lichtphase zu einem Zeitpunkt (wie rules.light_on, auch über Mitternacht)
+function lightOnAt(tstr) {
+  const li = CFG?.values?.light; if (!li || li.enabled === false) return false;
+  const mm = s => +s.slice(0, 2) * 60 + +s.slice(3, 5), on = mm(li.on), off = mm(li.off), t = mm(tstr.slice(11, 16));
+  return on < off ? on <= t && t < off : (t >= on || t < off);
+}
+// Zielband (Soll ± Hysterese) je Messpunkt für Temperatur, Feuchte, VPD – Tag/Nacht nach Lichtplan
+function bandAt(k, r) {
+  const cl = CFG?.values?.climate; if (!cl) return null;
+  const p = lightOnAt(r.t) ? 'day' : 'night';
+  if (k === 'temp') return [cl['temp_' + p] - cl.temp_hyst, cl['temp_' + p] + cl.temp_hyst];
+  if (k === 'vpd') return [cl['vpd_' + p] - cl.vpd_hyst, cl['vpd_' + p] + cl.vpd_hyst];
+  if (k === 'hum') {
+    if (cl.control !== 'vpd') return [cl['hum_' + p] - cl.hum_hyst, cl['hum_' + p] + cl.hum_hyst];
+    if (r.temp == null) return null;   // VPD-Modus: Feuchte-Ziel folgt aus VPD-Ziel bei der gemessenen Temperatur
+    const leaf = cl.leaf_offset ?? -2, rh = v => (svpK(r.temp + leaf) - v) / svpK(r.temp) * 100, v = cl['vpd_' + p];
+    return [rh(v + cl.vpd_hyst), rh(v - cl.vpd_hyst)];
+  }
+  return null;
+}
+// Gerätespuren unter dem Diagramm: wer hat wann gearbeitet
+const LANE_ROLES = [['dehumidifier', 'Entfeuchter', '--hum', 'Entf.'], ['humidifier', 'Befeuchter', '--hum2', 'Befeu.'], ['heater', 'Heizung', '--temp', 'Heiz.'], ['pump', 'Pumpe', '--soil', 'Pumpe']];
+function chartLanes() {
+  if (!S) return [];
+  const lanes = [];
+  if (hist.some(r => r.exhaust_w != null)) lanes.push({key: 'exhaust_w', label: 'Abluft', short: 'Abluft', col: '--acc', watts: true});
+  LANE_ROLES.forEach(([role, label, col, short]) => Object.entries(S.outputs).forEach(([n, o]) => {
+    if (o.role === role && hist.some(r => r[n])) lanes.push({key: n, label: LABEL[n] && LABEL[n] !== label ? LABEL[n] : label, short, col});
+  }));
+  return lanes;
+}
 function drawChart() {
   const cv = $('#chart'); if (!cv.clientWidth) return;
-  const [g, w, h] = sizeCanvas(cv, innerWidth < 600 ? 240 : 290), n = hist.length, line = rgba(cssv('--text'), .08), mute = cssv('--mute');
+  const lanes = chartLanes(), laneH = 6, laneGap = 4, lanesH = lanes.length ? lanes.length * (laneH + laneGap) + 6 : 0;
+  const [g, w, h] = sizeCanvas(cv, (innerWidth < 600 ? 240 : 290) + lanesH), n = hist.length, line = rgba(cssv('--text'), .08), mute = cssv('--mute');
+  const bottom = h - PAD.b - lanesH, H = bottom - PAD.t;
   g.clearRect(0, 0, w, h); g.font = '11px system-ui'; g.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) { const y = PAD.t + i * (h - PAD.t - PAD.b) / 4; g.strokeStyle = line; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(w - PAD.r, y); g.stroke(); }
-  if (n < 2) { g.fillStyle = mute; g.textAlign = 'center'; g.fillText('Noch zu wenig Daten – der Verlauf füllt sich im Minutentakt …', w / 2, h / 2); return; }
+  for (let i = 0; i <= 4; i++) { const y = PAD.t + i * H / 4; g.strokeStyle = line; g.beginPath(); g.moveTo(PAD.l, y); g.lineTo(w - PAD.r, y); g.stroke(); }
+  if (n < 2) { g.fillStyle = mute; g.textAlign = 'center'; g.fillText('Noch zu wenig Daten – der Verlauf füllt sich im Minutentakt …', w / 2, H / 2); return; }
   g.fillStyle = mute; [0, .25, .5, .75, 1].forEach(f => { const i = Math.round(f * (n - 1)); g.textAlign = f === 0 ? 'left' : f === 1 ? 'right' : 'center';
     g.fillText(range === '7d' ? hist[i].t.slice(5, 10) + ' ' + hist[i].t.slice(11, 16) : hist[i].t.slice(11, 16), xAt(i, n, w), h - 7); });
-  const vis = SERIES.filter(s => shown.has(s[0]) && scaleOf(s[0])), H = h - PAD.t - PAD.b;
-  vis.forEach(([k, , u, cv2], idx) => {
-    const [lo, hi] = scaleOf(k), col = cssv(cv2), Y = y => PAD.t + (1 - (y - lo) / (hi - lo)) * H;
+  const vis = SERIES.filter(s => shown.has(s[0]) && hist.some(r => r[s[0]] != null));
+  // gemeinsame Skala je Einheit (inkl. Zielband, damit es sichtbar bleibt)
+  const units = [...new Set(vis.map(s => s[2]))], scale = {};
+  units.forEach(u => {
+    const vals = [];
+    vis.filter(s => s[2] === u).forEach(([k]) => hist.forEach(r => { if (r[k] != null) vals.push(r[k]); const b = bandAt(k, r); if (b) vals.push(...b); }));
+    const lo = Math.min(...vals), hi = Math.max(...vals), m = (hi - lo) * .12 || 1; scale[u] = [lo - m, hi + m];
+  });
+  const Yof = u => y => PAD.t + (1 - (y - scale[u][0]) / (scale[u][1] - scale[u][0])) * H;
+  // Zielbänder zuerst (hinter den Kurven)
+  vis.forEach(([k, , u, cv2]) => {
+    const Y = Yof(u), up = [], dn = [];
+    hist.forEach((r, i) => { const b = bandAt(k, r); if (b) { up.push([xAt(i, n, w), Y(b[1])]); dn.push([xAt(i, n, w), Y(b[0])]); } });
+    if (up.length < 2) return;
+    const col = cssv(cv2);
+    g.beginPath(); up.forEach((p, i) => i ? g.lineTo(...p) : g.moveTo(...p)); [...dn].reverse().forEach(p => g.lineTo(...p)); g.closePath();
+    g.fillStyle = rgba(col, .09); g.fill();
+    g.setLineDash([3, 4]); g.strokeStyle = rgba(col, .35); g.lineWidth = 1;
+    [up, dn].forEach(pts => { g.beginPath(); pts.forEach((p, i) => i ? g.lineTo(...p) : g.moveTo(...p)); g.stroke(); }); g.setLineDash([]);
+  });
+  vis.forEach(([k, , u, cv2]) => {
+    const Y = Yof(u), col = cssv(cv2);
     const pts = []; hist.forEach((r, i) => { if (r[k] != null) pts.push([xAt(i, n, w), Y(r[k])]); });
-    const grad = g.createLinearGradient(0, PAD.t, 0, h - PAD.b); grad.addColorStop(0, rgba(col, .22)); grad.addColorStop(1, rgba(col, 0));
-    g.beginPath(); smooth(g, pts); g.lineTo(pts[pts.length - 1][0], h - PAD.b); g.lineTo(pts[0][0], h - PAD.b); g.closePath(); g.fillStyle = grad; g.fill();
+    if (pts.length < 2) return;
+    const grad = g.createLinearGradient(0, PAD.t, 0, bottom); grad.addColorStop(0, rgba(col, .18)); grad.addColorStop(1, rgba(col, 0));
+    g.beginPath(); smooth(g, pts); g.lineTo(pts[pts.length - 1][0], bottom); g.lineTo(pts[0][0], bottom); g.closePath(); g.fillStyle = grad; g.fill();
     g.beginPath(); smooth(g, pts); g.strokeStyle = col; g.lineWidth = 2.4; g.lineJoin = g.lineCap = 'round'; g.stroke();
-    if (idx < 2) { g.fillStyle = col; g.textAlign = idx ? 'left' : 'right'; const x = idx ? w - PAD.r + 8 : PAD.l - 8;
-      for (let i = 0; i <= 4; i++) g.fillText((hi - (hi - lo) * i / 4).toFixed(k === 'vpd' ? 2 : hi - lo < 8 ? 1 : 0), x, PAD.t + i * H / 4 + 4); }
     if (hover >= 0 && hover < n && hist[hover][k] != null) { g.beginPath(); g.arc(xAt(hover, n, w), Y(hist[hover][k]), 4.5, 0, 7); g.fillStyle = cssv('--bg'); g.fill(); g.strokeStyle = col; g.lineWidth = 2.4; g.stroke(); }
   });
-  if (hover >= 0 && hover < n) { const X = xAt(hover, n, w); g.strokeStyle = rgba(cssv('--text'), .3); g.lineWidth = 1; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(X, PAD.t); g.lineTo(X, h - PAD.b); g.stroke(); g.setLineDash([]); }
+  // Achsen: links erste, rechts zweite Einheit – in der Farbe der ersten Kurve dieser Einheit, Einheit oben
+  units.slice(0, 2).forEach((u, idx) => {
+    const [lo, hi] = scale[u], col = cssv(vis.find(s => s[2] === u)[3]), x = idx ? w - PAD.r + 8 : PAD.l - 8;
+    g.fillStyle = col; g.textAlign = idx ? 'left' : 'right';
+    for (let i = 0; i <= 4; i++) g.fillText((hi - (hi - lo) * i / 4).toFixed(u === 'kPa' || u === 'mS/cm' ? 2 : hi - lo < 8 ? 1 : 0), x, PAD.t + i * H / 4 + 4);
+    g.font = '600 10px system-ui'; g.fillText(u, x, 9); g.font = '11px system-ui';
+  });
+  // Gerätespuren
+  lanes.forEach((L, j) => {
+    const y = bottom + 10 + j * (laneH + laneGap), col = cssv(L.col), ex = CFG?.values?.exhaust || {};
+    g.fillStyle = rgba(cssv('--text'), .05); g.beginPath(); g.roundRect(PAD.l, y, w - PAD.l - PAD.r, laneH, 3); g.fill();
+    for (let i = 0; i < n - 1; i++) {
+      const v = hist[i][L.key]; if (!v) continue;
+      const a = L.watts ? Math.max(.12, Math.min(1, (v - (ex.min_w ?? 0)) / Math.max(1, (ex.max_w ?? 100) - (ex.min_w ?? 0)))) : .9;
+      g.fillStyle = rgba(col, a); g.fillRect(xAt(i, n, w), y, Math.max(1, xAt(i + 1, n, w) - xAt(i, n, w)), laneH);
+    }
+    g.fillStyle = mute; g.textAlign = 'right'; g.font = '10px system-ui'; g.fillText(L.short, PAD.l - 6, y + laneH); g.font = '11px system-ui';
+  });
+  if (hover >= 0 && hover < n) { const X = xAt(hover, n, w); g.strokeStyle = rgba(cssv('--text'), .3); g.lineWidth = 1; g.setLineDash([4, 4]); g.beginPath(); g.moveTo(X, PAD.t); g.lineTo(X, bottom + lanesH); g.stroke(); g.setLineDash([]); }
 }
 function drawTimeline() {
   const cv = $('#tl'), names = S ? Object.keys(S.outputs) : []; if (!cv.clientWidth || !names.length) return;
@@ -618,7 +699,8 @@ $('#chart').onmousemove = e => {
   hover = Math.max(0, Math.min(hist.length - 1, Math.round((x - PAD.l) / (w - PAD.l - PAD.r) * (hist.length - 1))));
   const r = hist[hover], tip = $('#tip');
   tip.innerHTML = `<b>${r.t.slice(5, 10)} ${r.t.slice(11, 16)}</b><br>` + SERIES.filter(s => shown.has(s[0]) && r[s[0]] != null)
-    .map(([k, l, u, c]) => `<span style="color:var(${c})">●</span> ${l}: <b>${r[k]}</b> ${u}`).join('<br>');
+    .map(([k, l, u, c]) => `<span style="color:var(${c})">●</span> ${l}: <b>${r[k]}</b> ${u}`).join('<br>')
+    + chartLanes().map(L => `<br><span style="color:var(${L.col})">▬</span> ${esc(L.label)}: <b>${L.watts ? (r[L.key] != null ? Math.round(r[L.key]) + ' W' : '–') : r[L.key] ? 'an' : 'aus'}</b>`).join('');
   tip.style.display = 'block'; tip.style.left = (x > w / 2 ? x - tip.offsetWidth - 14 : x + 14) + 'px'; tip.style.top = '14px'; drawChart();
 };
 $('#chart').onmouseleave = () => { hover = -1; $('#tip').style.display = 'none'; drawChart(); };

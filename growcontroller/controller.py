@@ -106,6 +106,7 @@ class Controller:
         self.last_irrigation = st.get("last_irrigation")
         self.steer = st.get("steer", {})      # Crop-Steering-Tageszustand (Schüsse, Dryback …), übersteht Neustarts
         self.last_report = st.get("last_report")  # Datum des letzten Tagesberichts
+        self.report_last = st.get("report_last")  # {"t", "title", "text"} des zuletzt gesendeten Berichts
         self.steer_info = None
         self.lock = threading.RLock()
         self.stop_evt = threading.Event()
@@ -149,7 +150,8 @@ class Controller:
     def _save_state(self):
         li = self.last_irrigation.isoformat() if self.last_irrigation else None
         steer = {**self.steer, "last_shot": self.steer["last_shot"].isoformat() if self.steer.get("last_shot") else None}
-        settings.save(self._p("state.json"), {"last_irrigation": li, "steer": steer, "last_report": self.last_report})
+        settings.save(self._p("state.json"), {"last_irrigation": li, "steer": steer, "last_report": self.last_report,
+                                              "report_last": self.report_last})
 
     def _load_history(self):
         cutoff = datetime.now() - timedelta(days=7)
@@ -926,6 +928,7 @@ class Controller:
                 "sensors": {n: {"prefix": p, "label": self.sensor_labels.get(n, n)} for n, (p, _s) in self.sensors.items()},
                 "bluetooth": self.btwatch.info() if getattr(self, "btwatch", None) else None,
                 "fallback": self.fallback and self.sensor_labels.get(self.fallback),
+                "health": self.health(),
                 "steering": self.steer_info and {**self.steer_info, "shots": self.steer.get("shots", 0),
                                                  "reached": self.steer.get("reached", False), "dryback": self.steer.get("dryback"),
                                                  "morning": self.steer.get("morning"),
@@ -1063,10 +1066,93 @@ class Controller:
         if not rc["enabled"] or not self.notifier.configured or self.last_report == today or now.strftime("%H:%M") < rc["time"]:
             return
         self.last_report = today
-        self._save_state()
         title, text = self.daily_report()
+        self._keep_report(title, text)
         self.notifier.send(title, text, "default")
         self.event("system", "Tagesbericht gesendet")
+
+    def _keep_report(self, title, text):
+        self.report_last = {"t": datetime.now().isoformat(timespec="minutes"), "title": title, "text": text}
+        self._save_state()
+
+    def send_report_now(self):
+        """Bericht sofort senden (Knopf). -> Fehlertext oder None"""
+        title, text = self.daily_report()
+        err = self.notifier.send_now(title, text)
+        if not err:
+            self._keep_report(title, text)
+        return err
+
+    def health(self):
+        """Systemzustand für die Leiste oben: [{"name", "state": ok|warn|bad|off, "detail"}]."""
+        out, mono = [], time.monotonic()
+
+        def add(name, state, detail):
+            out.append({"name": name, "state": state, "detail": detail})
+        if self.fallback:
+            add("Sensoren", "warn", f"Hauptsensor aus – Ersatz {self.sensor_labels.get(self.fallback)} regelt")
+        else:
+            add("Sensoren", "bad" if self.stale() else "ok", "Messwerte veraltet" if self.stale() else "Messwerte aktuell")
+        bw = getattr(self, "btwatch", None)
+        if bw:
+            scan = sensors._GoveeScanner._inst
+            age = None if not scan or scan.last_adv is None else int(mono - scan.last_adv)
+            st = "bad" if bw.gave_up else "warn" if bw.waiting else "ok"
+            add("Bluetooth", st, ("hängt – Pi neu starten" if bw.gave_up else "wird zurückgesetzt …" if bw.waiting else "empfängt")
+                + (f" · letztes Funkpaket vor {age} s" if age is not None else "")
+                + (f" · {len(bw.resets)} Reset(s) in der letzten Stunde" if bw.resets else ""))
+        links = {}
+        for n, o in self.outs.items():
+            link = getattr(o.backend, "link", None)
+            if link is not None and o.info.get("type") == "spiderfarmer" and getattr(link, "mac", None):
+                links.setdefault(link.mac, (link, []))[1].append(n)
+        for mac, (link, names) in links.items():
+            label = next((self.sensor_labels.get(sn) for sn, c in self.cfg["sensors"].items()
+                          if str(c.get("mac", "")).upper() == mac), None) or f"GGS {mac[-5:]}"
+            age = None if not getattr(link, "dev_sta", None) else int(mono - link.t)
+            ok = age is not None and age < 60
+            add(label, "ok" if ok else "bad", "verbunden" if ok else (getattr(link, "error", None) or "keine Daten"))
+        sl = next((o.backend.link for o in self.outs.values() if o.info.get("type") == "sanlight" and hasattr(o.backend, "link")), None)
+        if sl is not None:
+            dark = not any(o.state for o in self.outs.values() if o.role == "light")
+            con = getattr(sl, "connected", False)
+            add("SANlight", "ok" if con else "off" if dark else "warn",
+                "verbunden" if con else "Licht aus – Dimmer stromlos" if dark else "nicht verbunden")
+        bad = [n for n, o in self.outs.items() if getattr(o.backend, "healthy", True) is False]
+        add("Geräte", "warn" if bad else "ok", ("nicht erreichbar: " + ", ".join(bad)) if bad else f"alle {len(self.outs)} erreichbar")
+        mq = self.hubs.get("mqtt")
+        if mq is not None:
+            con = mq.client.is_connected()
+            add("MQTT", "ok" if con else "bad", "verbunden" if con else "keine Verbindung zum Broker")
+        if self.notifier.configured:
+            add("Push", "warn" if self.notifier.error else "ok", self.notifier.error or ", ".join(self.notifier.channels()))
+        add("Pi", *self._pi_health())
+        return out
+
+    @staticmethod
+    def _pi_health():
+        """CPU-Temperatur, Last, freier Speicherplatz des Pi (nur Linux; sonst "off")."""
+        parts, state = [], "ok"
+        try:
+            with open("/sys/class/thermal/thermal_zone0/temp") as f:
+                t = int(f.read().strip()) / 1000
+            parts.append(f"CPU {t:.0f} °C")
+            state = "bad" if t >= 80 else "warn" if t >= 70 else state
+        except (OSError, ValueError):
+            pass
+        try:
+            parts.append(f"Last {os.getloadavg()[0]:.2f}")
+        except (OSError, AttributeError):
+            pass
+        try:
+            import shutil
+            du = shutil.disk_usage("/")
+            free = du.free / du.total * 100
+            parts.append(f"{free:.0f} % frei")
+            state = "bad" if free < 5 else "warn" if free < 15 and state == "ok" else state
+        except OSError:
+            pass
+        return (state if parts else "off"), " · ".join(parts) or "keine Angaben"
 
     def _advance(self, now):
         """Wechselt automatisch zum Folge-Zyklus, wenn die Dauer des aktuellen abgelaufen ist."""

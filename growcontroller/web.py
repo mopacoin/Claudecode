@@ -51,6 +51,9 @@ def make_handler(ctl, token):
             rng = q.get("range", ["1h"])[0]
             if u.path == "/api/status":
                 self._send(200, ctl.status())
+            elif u.path == "/api/report":  # letzter gesendeter Bericht + aktuelle Auswertung
+                title, text = ctl.daily_report()
+                self._send(200, {"last": ctl.report_last, "preview": {"title": title, "text": text}})
             elif u.path == "/api/history":
                 try:
                     off = max(0, min(24 * 30, int(q.get("offset", ["0"])[0])))
@@ -74,6 +77,9 @@ def make_handler(ctl, token):
             elif u.path == "/api/ping":  # prüft nur den Token (für den Login der Oberfläche)
                 if self._auth():
                     self._send(200, {"ok": True})
+            elif u.path == "/ui_extra.js":
+                with open(os.path.join(os.path.dirname(__file__), "ui_extra.js"), "rb") as f:
+                    self._send(200, f.read(), "text/javascript; charset=utf-8")
             elif u.path in ("/", "/index.html"):
                 with open(INDEX, "rb") as f:
                     self._send(200, f.read(), "text/html; charset=utf-8")
@@ -126,7 +132,7 @@ def make_handler(ctl, token):
                     return self._send(400, {"error": str(e)})
                 return self._send(200, ctl.status())
             if parts == ["api", "report", "send"]:  # Tagesbericht sofort senden
-                err = ctl.notifier.send_now(*ctl.daily_report())
+                err = ctl.send_report_now()
                 return self._send(400, {"error": err}) if err else self._send(200, {"ok": True})
             if parts == ["api", "notify", "test"]:
                 err = ctl.notifier.send_now("Growcontroller", "Test-Benachrichtigung – kommt an ✓")

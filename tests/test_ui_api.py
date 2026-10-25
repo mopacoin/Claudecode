@@ -38,3 +38,18 @@ class TestEventsSince(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHealthAndReport(unittest.TestCase):
+    def test_health_lists_checks_and_report_is_kept(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctl = make(tmp)
+            names = [h["name"] for h in ctl.health()]
+            self.assertIn("Sensoren", names)
+            self.assertIn("Geräte", names)
+            self.assertIn("Pi", names)
+            self.assertTrue(all(h["state"] in ("ok", "warn", "bad", "off") for h in ctl.health()))
+            ctl.notifier.ntfy = {"topic": "x"}
+            ctl.notifier.send_now = lambda title, msg, prio="default": None
+            self.assertIsNone(ctl.send_report_now())
+            self.assertIn("Grow-Tagesbericht", make(tmp).report_last["title"])   # übersteht Neustart

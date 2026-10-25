@@ -148,9 +148,114 @@ document.addEventListener('click', async e => {
   }
 });
 
+// ---- Sicherung / Wiederherstellung ----
+function renderBackupCard() {
+  const box = $('#backupCard'); if (!box || box.dataset.done) return;
+  box.dataset.done = 1;
+  box.innerHTML = `<h3>Sicherung</h3><p class="hint">Einstellungen, Zyklen, Geräte (config.json) und Zustand als eine Datei. Passwörter aus <code>.env</code> sind nicht enthalten.</p>
+    <div class="row" style="gap:8px"><button class="sec" id="bkDown">Herunterladen</button><button class="sec" id="bkUp">Wiederherstellen …</button>
+    <input type="file" id="bkFile" accept=".json,application/json" hidden></div>`;
+}
+document.addEventListener('click', async e => {
+  if (e.target.id === 'bkDown') {
+    try {
+      const r = await fetch('/api/backup', {headers: {'X-Token': token}}); if (!r.ok) throw new Error((await r.json()).error || 'Fehler');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob());
+      a.download = `growcontroller-backup-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(a.href);
+    } catch (er) { toast(er.message, 1); }
+  }
+  if (e.target.id === 'bkUp') $('#bkFile').click();
+});
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'bkFile' || !e.target.files[0]) return;
+  const f = e.target.files[0]; e.target.value = '';
+  let b; try { b = JSON.parse(await f.text()); } catch (er) { return toast('Datei ist kein gültiges JSON', 1); }
+  if (!confirm(`Sicherung vom ${String(b.created || '?').replace('T', ' ')} wiederherstellen?\nAktuelle Einstellungen und Geräte werden ersetzt (die alten Dateien bleiben als .bak erhalten). Der Controller startet danach neu.`)) return;
+  try { await api('/api/restore', b); toast('Wiederhergestellt – Neustart läuft …'); waitRestart(); }
+  catch (er) { toast(er.data?.error || er.message, 1); }
+});
+function waitRestart() {   // nach ca. 5 s neu laden, sobald der Dienst wieder antwortet
+  let n = 0; const t = setInterval(async () => {
+    if (++n > 40) return clearInterval(t);
+    try { const r = await fetch('/api/status'); if (r.ok && n > 2) { clearInterval(t); location.reload(); } } catch (e) {}
+  }, 1500);
+}
+
+// ---- Geräte-Editor ----
+let devData = null, devDirty = false;
+const DEV_SEC = {outputs: ['Ausgänge', 'type'], sensors: ['Sensoren', 'driver']};
+async function loadDevices() {
+  try { devData = await api('/api/devices'); devDirty = false; } catch (e) { devData = {error: e.message}; }
+  renderDevices();
+}
+function devInput(sec, n, k, v) {
+  const at = `data-ds="${sec}" data-dn="${esc(n)}" data-dk="${esc(k)}"`;
+  if (typeof v === 'boolean') return `<div class="ig"><select ${at} data-dt="bool"><option value="true" ${v ? 'selected' : ''}>ja</option><option value="false" ${v ? '' : 'selected'}>nein</option></select></div>`;
+  if (typeof v === 'number') return `<div class="ig"><input ${at} data-dt="num" type="number" step="any" value="${v}"></div>`;
+  if (v !== null && typeof v === 'object') return `<div class="ig"><input ${at} data-dt="json" value="${esc(JSON.stringify(v))}"></div>`;
+  const secret = v === devData.mask;
+  return `<div class="ig"><input ${at} data-dt="str" value="${esc(v ?? '')}" ${secret ? 'placeholder="unverändert" title="Gespeicherter geheimer Wert – leer lassen bzw. ••••, um ihn zu behalten"' : ''}></div>`;
+}
+function renderDevices() {
+  const box = $('#devEditor'); if (!box) return;
+  if (!devData) { box.innerHTML = '<h3>Geräte</h3><div class="sub">wird geladen …</div>'; return; }
+  if (devData.error) { box.innerHTML = `<h3>Geräte</h3><div class="sub">${esc(devData.error)}</div>`; return; }
+  box.innerHTML = `<div class="row"><h3 class="sp" style="margin:0">Geräte</h3>${devDirty ? '<span class="sub" style="color:var(--warn)">nicht gespeichert</span>' : ''}</div>
+    <p class="hint" style="margin-top:6px">Ausgänge und Sensoren aus der config.json. Änderungen werden erst nach einem Neustart aktiv; vor jedem Speichern wird eine Sicherungskopie angelegt.
+      Passwörter zeigt die Oberfläche nur als ${devData.mask}; besser <code>\${NAME}</code> aus der .env verwenden.</p>
+    ${Object.entries(DEV_SEC).map(([sec, [title, tk]]) => `<h4 style="margin:16px 0 8px">${title}</h4><div class="devlist">
+      ${Object.entries(devData[sec]).map(([n, c]) => `<div class="devc"><div class="row"><b class="sp">${esc(LABEL[n] || n)}</b><span class="sub">${esc(n)} · ${esc(c[tk] || (sec === 'outputs' ? 'gpio' : '?'))}</span>
+          <button class="chip" data-ddel="${sec}|${esc(n)}" title="Gerät entfernen">✕</button></div>
+        <div class="devf">${Object.entries(c).filter(([k]) => k !== tk).map(([k, v]) => `<label class="sub" title="${esc(k)}">${esc(k)}</label>${devInput(sec, n, k, v)}<button class="chip" data-dfdel="${sec}|${esc(n)}|${esc(k)}" title="Feld entfernen">−</button>`).join('')}</div>
+        <div class="row" style="gap:6px;margin-top:8px"><div class="ig" style="flex:1"><input data-dnewk="${sec}|${esc(n)}" placeholder="neues Feld, z. B. power_w"></div><button class="chip" data-dfadd="${sec}|${esc(n)}">+ Feld</button></div></div>`).join('')}
+      </div>
+      <div class="row" style="gap:6px;margin-top:8px"><div class="ig"><select id="dnt-${sec}">${Object.keys(devData.types[sec]).map(t => `<option>${t}</option>`).join('')}</select></div>
+        <div class="ig" style="flex:1"><input id="dnn-${sec}" placeholder="Name (a–z, 0–9, _)"></div><button class="chip" data-dadd="${sec}">+ ${sec === 'outputs' ? 'Ausgang' : 'Sensor'}</button></div>`).join('')}
+    <div class="actions" style="margin-top:14px"><button class="sec" id="devReload">Verwerfen</button><button class="sec" id="devRestart">Neu starten</button><button class="pri" id="devSave">Speichern</button></div>`;
+}
+document.addEventListener('input', e => {
+  const i = e.target.closest('[data-ds]'); if (!i || !devData) return;
+  const c = devData[i.dataset.ds][i.dataset.dn], t = i.dataset.dt, v = i.value;
+  if (t === 'bool') c[i.dataset.dk] = v === 'true';
+  else if (t === 'num') c[i.dataset.dk] = v === '' ? null : +v;
+  else if (t === 'json') { try { c[i.dataset.dk] = JSON.parse(v); i.closest('.ig').style.borderColor = ''; } catch (er) { i.closest('.ig').style.borderColor = 'var(--bad)'; } }
+  else c[i.dataset.dk] = v === '' && i.placeholder === 'unverändert' ? devData.mask : v;
+  devDirty = true;
+});
+document.addEventListener('change', e => { if (e.target.closest('[data-ds]')) e.target.dispatchEvent(new Event('input', {bubbles: true})); });
+document.addEventListener('click', async e => {
+  if (!devData || !e.target.closest('#devEditor')) return;
+  const t = e.target.closest('button'); if (!t) return;
+  const d = t.dataset;
+  if (d.ddel) { const [s, n] = d.ddel.split('|'); if (!confirm(`„${n}“ entfernen?`)) return; delete devData[s][n]; devDirty = true; renderDevices(); }
+  else if (d.dfdel) { const [s, n, k] = d.dfdel.split('|'); delete devData[s][n][k]; devDirty = true; renderDevices(); }
+  else if (d.dfadd) {
+    const [s, n] = d.dfadd.split('|'), k = document.querySelector(`[data-dnewk="${d.dfadd}"]`).value.trim();
+    if (!/^[a-z0-9_]+$/.test(k)) return toast('Feldname nur a–z, 0–9, _', 1);
+    if (!(k in devData[s][n])) devData[s][n][k] = ''; devDirty = true; renderDevices();
+  } else if (d.dadd) {
+    const s = d.dadd, n = $('#dnn-' + s).value.trim(), typ = $('#dnt-' + s).value;
+    if (!/^[a-z0-9_]{1,40}$/.test(n)) return toast('Name nur a–z, 0–9, _', 1);
+    if (devData.outputs[n] || devData.sensors[n]) return toast('Name ist schon vergeben', 1);
+    devData[s][n] = {[DEV_SEC[s][1]]: typ, ...JSON.parse(JSON.stringify(devData.types[s][typ]))}; devDirty = true; renderDevices();
+  } else if (t.id === 'devReload') loadDevices();
+  else if (t.id === 'devSave') {
+    try { await api('/api/devices', {outputs: devData.outputs, sensors: devData.sensors}); devDirty = false; renderDevices(); toast('Gespeichert – aktiv nach „Neu starten“'); }
+    catch (er) { toast(er.data?.error || er.message, 1); }
+  } else if (t.id === 'devRestart') {
+    if (devDirty && !confirm('Es gibt ungespeicherte Änderungen. Trotzdem neu starten?')) return;
+    if (!confirm('Controller neu starten? Alle Ausgänge gehen kurz in den sicheren Zustand.')) return;
+    try { await api('/api/restart', {}); toast('Neustart läuft …'); waitRestart(); } catch (er) { toast(er.message, 1); }
+  }
+});
+function loadSystemExtra() { renderBackupCard(); if (!devDirty) loadDevices(); }
+
 function renderExtra() {
   renderHealth();
   loadReport(false);
   if ($('#tab-analysis.on')) drawVpdMatrix();   // aktueller Punkt wandert mit
   for (const f of (window.extraRenderers || [])) { try { f(); } catch (e) { console.error(e); } }
 }
+// beim direkten Aufruf mit #system/#analysis lief showTab schon, bevor diese Datei geladen war
+if (location.hash === '#system') loadSystemExtra();
+if (location.hash === '#analysis') loadAnalysis();

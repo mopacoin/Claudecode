@@ -123,6 +123,9 @@ button.sec{background:var(--card2);color:var(--text);border:1px solid var(--line
 .hq{display:inline-grid;place-items:center;width:16px;height:16px;margin-left:6px;border-radius:50%;background:var(--card2);color:var(--mute);font-size:11px;font-weight:700;cursor:pointer;vertical-align:1px}
 .hq:hover{color:var(--text)}.hlp{display:none;font-size:12.5px;color:var(--mute);margin:-2px 0 6px;line-height:1.45}.hlpon .hlp{display:block}
 .reptext{white-space:pre-wrap;font-size:13.5px;line-height:1.6}
+.devlist{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}.devc{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:12px}
+.devf{display:grid;grid-template-columns:minmax(80px,auto) 1fr auto;gap:6px 8px;align-items:center;margin-top:8px}.devf .ig{background:var(--card)}.devf .ig input,.devf .ig select{padding:7px 10px}.devc .chip{padding:4px 10px}
+@media(max-width:500px){.devlist{grid-template-columns:1fr}}
 .sttab{display:grid;gap:5px;margin-top:6px}.sthead,.strow{display:grid;grid-template-columns:var(--cols);gap:10px;align-items:center}
 .sthead{font-size:12px;color:var(--mute)}.stbar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--card2)}.stbar i{display:block;height:100%}
 .etable{display:grid;gap:8px;margin-top:6px}.erow{display:grid;grid-template-columns:minmax(90px,1.1fr) 1.4fr 88px 64px 120px 80px;gap:10px;align-items:center}
@@ -243,9 +246,11 @@ tr+tr td{border-top:1px solid var(--line)}
           <div class="card"><h3>Datenexport</h3><p class="hint">Verlauf als CSV, 1 Wert pro Minute.</p><div class="chips" id="exports"></div></div>
           <div class="card"><h3>Zugang</h3><p class="hint" id="authHint"></p><button class="sec" id="tokBtn">Token ändern</button></div>
           <div class="card"><h3>Benachrichtigungen</h3><p class="hint" id="notifyHint"></p><div class="row" style="gap:8px"><button class="sec" id="notifyBtn">Test senden</button><button class="sec" id="reportBtn">Bericht jetzt senden</button></div></div>
+          <div class="card" id="backupCard"></div>
         </div>
         <div id="f-report" class="card mt"></div>
         <div class="card mt"><h3>Hardware</h3><div style="overflow-x:auto"><table id="hw"></table></div></div>
+        <div class="card mt" id="devEditor"></div>
         <div class="card mt"><div class="row"><h3 class="sp" style="margin:0">Ereignisprotokoll</h3><div class="chips" id="evChips"></div></div>
           <div class="row" style="gap:8px;margin-top:10px"><div class="ig" style="flex:1"><input id="evSearch" placeholder="Suchen … z. B. Entfeuchter, Alarm, ggs_o1"></div>
             <div class="ig"><select id="evRange"><option value="">Neueste 200</option><option value="24h">24 Std</option><option value="7d">7 Tage</option></select></div></div>
@@ -387,6 +392,7 @@ function showTab(id) {
   location.hash = id; scrollTo(0, 0);
   if (id === 'overview') loadHistory(); if (id === 'system' || id === 'alarms') loadEvents();
   if (id === 'analysis' && typeof loadAnalysis === 'function') loadAnalysis();
+  if (id === 'system' && typeof loadSystemExtra === 'function') loadSystemExtra();
 }
 document.addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (b) showTab(b.dataset.t); });
 $('#alarmPill').onclick = () => S?.alarms.length && showTab('alarms');

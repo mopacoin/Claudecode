@@ -28,6 +28,7 @@ def main():
         cfg = json.load(f)
     cfg = expand(cfg)
     ctl = Controller(cfg, a.data)
+    ctl.config_path = a.config  # für Geräte-Editor und Sicherung (die Datei, nicht die eingesetzten Geheimnisse)
     w = cfg.get("web", {})
     srv = serve(ctl, w.get("host", "0.0.0.0"), w.get("port", 8080), w.get("token"))
     threading.Thread(target=srv.serve_forever, daemon=True).start()

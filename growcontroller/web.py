@@ -3,7 +3,7 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import settings
+from . import configedit, settings
 
 INDEX = os.path.join(os.path.dirname(__file__), "index.html")
 
@@ -41,9 +41,12 @@ def make_handler(ctl, token):
                 return False
             return True
 
-        def _body(self):
+        def _body(self, limit=65536):
             n = int(self.headers.get("Content-Length", 0) or 0)
-            return json.loads(self.rfile.read(n) or b"{}") if n <= 65536 else None
+            return json.loads(self.rfile.read(n) or b"{}") if n <= limit else None
+
+        def _cfg_path(self):
+            return getattr(ctl, "config_path", "config.json")
 
         def do_GET(self):
             u = urlparse(self.path)
@@ -80,6 +83,15 @@ def make_handler(ctl, token):
             elif u.path == "/api/export.csv":
                 self._send(200, ctl.export_csv(rng).encode(), "text/csv; charset=utf-8",
                            {"Content-Disposition": f'attachment; filename="grow-{rng}.csv"'})
+            elif u.path == "/api/devices":  # Geräte-Editor (Geheimnisse maskiert)
+                if self._auth():
+                    self._send(200, configedit.read_devices(self._cfg_path()))
+            elif u.path == "/api/backup":
+                if self._auth():
+                    from datetime import date
+                    self._send(200, json.dumps(configedit.make_backup(self._cfg_path(), ctl.state_dir), indent=2,
+                                               ensure_ascii=False).encode(), "application/json; charset=utf-8",
+                               {"Content-Disposition": f'attachment; filename="growcontroller-backup-{date.today()}.json"'})
             elif u.path == "/api/ping":  # prüft nur den Token (für den Login der Oberfläche)
                 if self._auth():
                     self._send(200, {"ok": True})
@@ -96,7 +108,7 @@ def make_handler(ctl, token):
             if not self._same_origin() or not self._auth():
                 return
             try:
-                body = self._body()
+                body = self._body(4 * 1024 * 1024 if self.path == "/api/restore" else 65536)
             except ValueError:
                 return self._send(400, {"error": "ungültiges JSON"})
             if body is None:
@@ -140,6 +152,22 @@ def make_handler(ctl, token):
             if parts == ["api", "report", "send"]:  # Tagesbericht sofort senden
                 err = ctl.send_report_now()
                 return self._send(400, {"error": err}) if err else self._send(200, {"ok": True})
+            if parts == ["api", "devices"]:
+                err = configedit.write_devices(self._cfg_path(), body)
+                if not err:
+                    ctl.event("system", "Geräte in config.json geändert (aktiv nach Neustart)")
+                return self._send(400, {"error": err}) if err else self._send(200, {"ok": True, "restart": True})
+            if parts == ["api", "restore"]:
+                err = configedit.restore_backup(self._cfg_path(), ctl.state_dir, body)
+                if err:
+                    return self._send(400, {"error": err})
+                self._send(200, {"ok": True, "restart": True})
+                ctl.stop_evt.set()  # sofort neu starten, sonst überschreibt der laufende Controller die Dateien wieder
+                return
+            if parts == ["api", "restart"]:  # systemd (Restart=always) startet den Dienst neu
+                self._send(200, {"ok": True})
+                ctl.stop_evt.set()
+                return
             if parts == ["api", "energy"]:
                 err = ctl.set_energy(body)
                 return self._send(400, {"error": err}) if err else self._send(200, ctl.energy(int(body.get("days", 7))))

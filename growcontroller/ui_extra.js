@@ -103,14 +103,18 @@ async function loadStats() {
 function renderStats() {
   const box = $('#statsCard'); if (!box || !statData) return;
   const keys = statData.vpd_mode ? [['vpd', 'VPD'], ['temp', 'Temp.']] : [['vpd', 'VPD'], ['temp', 'Temp.'], ['hum', 'Feuchte']];
-  const bar = st => !st || st.in == null ? '<div class="stbar"></div>' :
-    `<div class="stbar" title="${st.lo} % zu niedrig · ${st.in} % im Ziel · ${st.hi} % zu hoch"><i style="width:${st.lo}%;background:var(--hum)"></i><i style="width:${st.in}%;background:var(--ok)"></i><i style="width:${st.hi}%;background:var(--temp)"></i></div>`;
+  // Grün (im Ziel) beginnt immer links -> Tage lassen sich wie ein Balkendiagramm vergleichen; „zu niedrig“ nur dezent gestreift
   const col = v => v == null ? '--mute' : v >= 90 ? '--ok' : v >= 70 ? '--warn' : '--bad';
-  const days = statData.days.slice().reverse();
+  const bar = st => !st || st.in == null ? '<div class="stcell"><div class="stbar"></div><span class="sub">–</span></div>' :
+    `<div class="stcell" title="${st.in} % im Ziel · ${st.lo} % zu niedrig · ${st.hi} % zu hoch"><div class="stbar"><i class="in" style="width:${st.in}%"></i><i class="hi" style="width:${st.hi}%"></i><i class="lo" style="width:${st.lo}%"></i></div>
+      <span class="stv"><b style="color:var(${col(st.in)})">${st.in}</b><small>${st.lo >= st.hi ? `↓${st.lo}` : `↑${st.hi}`}</small></span></div>`;
+  const all = statData.days.slice().reverse(), last = all.findLastIndex(d => d.all != null);
+  const days = all.slice(0, last + 1);   // Tage vor Beginn der Aufzeichnung weglassen
   const withData = days.filter(d => d.all != null), avg = withData.length ? Math.round(withData.reduce((a, d) => a + d.all, 0) / withData.length) : null;
+  const avgOf = k => { const v = withData.filter(d => d[k]?.in != null); return v.length ? Math.round(v.reduce((a, d) => a + d[k].in, 0) / v.length) : null; };
   box.innerHTML = `<div class="row"><h3 class="sp" style="margin:0">${ico('chart')} Zeit im Zielbereich</h3>${[14, 30, 90].map(n => `<button class="chip ${statDays === n ? 'on' : ''}" data-sd="${n}">${n} Tage</button>`).join('')}</div>
-    <p class="hint">Je Tag, wie viel Prozent der Zeit die Werte in Soll ± Hysterese lagen (Tag/Nacht getrennt, gemessen an den aktuellen Sollwerten). Blau = zu niedrig, Grün = im Ziel, Orange = zu hoch.${avg != null ? ` Durchschnitt „alle gleichzeitig im Ziel“: <b style="color:var(${col(avg)})">${avg} %</b>.` : ''}</p>
-    <div class="sttab" style="--cols:52px ${'1fr '.repeat(keys.length)}52px"><div class="sthead"><span>Tag</span>${keys.map(k => `<span>${k[1]}</span>`).join('')}<span>alle</span></div>
+    <p class="hint">Je Tag, wie viel Prozent der Zeit die Werte in Soll ± Hysterese lagen (Tag/Nacht getrennt, gemessen an den aktuellen Sollwerten). <span class="stleg"><i class="in"></i>im Ziel <i class="hi"></i>zu hoch <i class="lo"></i>zu niedrig</span> Die Zahl ist „% im Ziel“, klein daneben der größere Rest (↓ zu niedrig / ↑ zu hoch).${avg != null ? ` Durchschnitt „alle gleichzeitig im Ziel“: <b style="color:var(${col(avg)})">${avg} %</b>.` : ''}</p>
+    <div class="sttab" style="--cols:52px ${'1fr '.repeat(keys.length)}52px"><div class="sthead"><span>Tag</span>${keys.map(k => { const a = avgOf(k[0]); return `<span>${k[1]}${a != null ? ` <b style="color:var(${col(a)})">Ø ${a} %</b>` : ''}</span>`; }).join('')}<span>alle</span></div>
     ${days.map(d => `<div class="strow"><span class="sub">${d.day.slice(8, 10)}.${d.day.slice(5, 7)}.</span>${keys.map(k => bar(d[k[0]])).join('')}<b style="color:var(${col(d.all)})">${d.all == null ? '–' : d.all + ' %'}</b></div>`).join('')}</div>`;
 }
 document.addEventListener('click', e => { const b = e.target.closest('[data-sd]'); if (b) { statDays = +b.dataset.sd; loadStats(); } });

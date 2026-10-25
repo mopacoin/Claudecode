@@ -93,9 +93,13 @@ class TestFallback(unittest.TestCase):
             ctl.read_sensors()
             self.assertEqual((ctl.readings["temp"], ctl.fallback), (24.0, None))
             main.error = True
-            ctl.last_ok -= controller.FALLBACK_S + 1           # Hauptsensor seit > 90 s weg
+            ctl._main_ok -= controller.FALLBACK_S + 1          # Hauptsensor seit > 90 s weg
             ctl.read_sensors()
             self.assertEqual((ctl.readings["temp"], ctl.readings["hum"], ctl.fallback), (22.0, 55.0, "ggs"))
+            for _ in range(3):                                  # bleibt beim Ersatz, statt hin und her zu pendeln
+                ctl.read_sensors()
+                self.assertEqual(ctl.fallback, "ggs")
+            self.assertEqual(sum("Ersatzsensor GGS 1 regelt" in e["msg"] for e in ctl.events), 1)
             self.assertFalse(ctl.stale())
             ctl._check_alarms()
             self.assertIn("sensor_fallback", ctl.alarms)

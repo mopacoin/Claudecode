@@ -99,6 +99,8 @@ class _GoveeScanner:
 
     def __init__(self):
         self.latest, self.raw, self.error = {}, {}, None
+        self.last_adv = None      # monotonic des letzten Funkpakets (irgendein Gerät) – Lebenszeichen für den Bluetooth-Wächter
+        self.restart = False      # vom Wächter gesetzt: Scan nach Bluetooth-Reset neu aufsetzen
         threading.Thread(target=self._run, daemon=True, name="govee-ble").start()
 
     def _run(self):
@@ -117,10 +119,12 @@ class _GoveeScanner:
         # DuplicateData=True: auch unveränderte Pakete melden, sonst kämen bei konstanten Werten keine Updates
         async with BleakScanner(detection_callback=self._cb, bluez={"filters": {"DuplicateData": True}}):
             self.error = None
-            while True:
-                await asyncio.sleep(3600)
+            while not self.restart:  # nach einem Bluetooth-Reset hört ein alter Scan oft nichts mehr -> neu starten
+                await asyncio.sleep(5)
+        self.restart = False
 
     def _cb(self, dev, adv):
+        self.last_adv = time.monotonic()
         mac = dev.address.upper()
         for mid, data in adv.manufacturer_data.items():
             r = decode_govee(mid, bytes(data))

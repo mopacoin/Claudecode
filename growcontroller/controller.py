@@ -55,6 +55,7 @@ class Controller:
         self.sensor_labels = {n: c.get("label", n) for n, c in cfg["sensors"].items()}  # Anzeige-Name im Dashboard
         self._fallbacks = [n for n, c in cfg["sensors"].items() if c.get("fallback") and c.get("prefix")]
         self.fallback = None  # Name des Ersatzsensors, solange er für den Haupt-Sensor einspringt
+        self._main_ok = None  # letzte Messung des echten Haupt-Sensors (monotonic)
         # Kalibrier-Versatz je Sensor (z. B. "temp_offset": -0.4, "hum_offset": 2) – wie bei Profi-Controllern
         self._offsets = {n: (float(c.get("temp_offset", 0)), float(c.get("hum_offset", 0))) for n, c in cfg["sensors"].items()}
         self._sensor_ok = {n: time.monotonic() for n in self.sensors}  # letzte erfolgreiche Messung je Sensor
@@ -110,6 +111,24 @@ class Controller:
         self.stop_evt = threading.Event()
         self._load_history()
         self.event("system", "Controller gestartet")
+        self.btwatch = self._start_btwatch()
+
+    def _start_btwatch(self):
+        """Bluetooth-Selbstheilung, sobald Bluetooth-Geräte genutzt werden (abschaltbar: "bluetooth": {"watchdog": false})."""
+        import sys
+        bc = self.cfg.get("bluetooth") or {}
+        ble = any(c.get("driver") in ("govee", "spiderfarmer") for c in self.cfg["sensors"].values())             or any(c.get("type") in ("spiderfarmer", "sanlight") for c in self.cfg["outputs"].values())
+        if not ble or not bc.get("watchdog", True) or not sys.platform.startswith("linux"):
+            return None
+        from . import btwatch
+        scan = sensors._GoveeScanner._inst
+        activity = (lambda: scan.last_adv) if scan else None
+
+        def on_reset():
+            if scan:
+                scan.restart = True
+        return btwatch.BluetoothWatchdog(self.event, activity=activity, on_reset=on_reset,
+                                         stale_s=int(bc.get("stale_s", 180)), adapter=bc.get("adapter", "hci0"))
 
     def _p(self, name):
         return os.path.join(self.state_dir, name)
@@ -202,6 +221,8 @@ class Controller:
                 if now - self._warned.get(name, -1e9) > 60:  # höchstens 1x pro Minute ins Log
                     self._warned[name] = now
                     log.warning("Sensor %s: %s", name, e)
+        if main:
+            self._main_ok = mono  # nur der echte Haupt-Sensor (nicht der Ersatz) – sonst pendelt der Ersatz hin und her
         main = self._fallback(merged, own, main, mono)
         self.fresh = merged
         self.readings.update(merged)
@@ -218,7 +239,7 @@ class Controller:
         """Ersatzsensor ("fallback": true): liefert der Haupt-Sensor länger als FALLBACK_S keine Werte,
         regelt temp/hum eines Zusatz-Sensors (z. B. GGS-Klimasensor im selben Zelt). Gibt zurück, ob Hauptwerte da sind."""
         use = None
-        if not main and time.time() - self.started > FALLBACK_S and (self.last_ok is None or mono - self.last_ok > FALLBACK_S):
+        if not main and time.time() - self.started > FALLBACK_S and (self._main_ok is None or mono - self._main_ok > FALLBACK_S):
             use = next((n for n in self._fallbacks if "temp" in own.get(n, {}) and "hum" in own.get(n, {})), None)
         if use:
             merged["temp"], merged["hum"] = own[use]["temp"], own[use]["hum"]
@@ -893,6 +914,7 @@ class Controller:
                                "enabled": ir["enabled"], "pump_mode": pump.mode if pump else None,
                                "running": time.monotonic() < self.pump_until},
                 "sensors": {n: {"prefix": p, "label": self.sensor_labels.get(n, n)} for n, (p, _s) in self.sensors.items()},
+                "bluetooth": self.btwatch.info() if getattr(self, "btwatch", None) else None,
                 "fallback": self.fallback and self.sensor_labels.get(self.fallback),
                 "steering": self.steer_info and {**self.steer_info, "shots": self.steer.get("shots", 0),
                                                  "reached": self.steer.get("reached", False), "dryback": self.steer.get("dryback"),

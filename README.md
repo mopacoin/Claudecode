@@ -188,6 +188,14 @@ wenn die Feuchte `p2_drop` % unter das Ziel fällt → **P3** ab `stop_min` vor 
 Angezeigt werden Phase, Schüsse und der gemessene **Dryback** (Feuchte am Ende der Lichtphase minus am nächsten Morgen).
 Ohne gültigen Bodenwert wird nicht gegossen; höchstens `max_shots` Schüsse pro Tag. Standardmäßig aus.
 
+## Bluetooth-Selbstheilung
+Der eingebaute Bluetooth-Chip des Pi bleibt bei viel Last (GGS, Govee, SANlight) gelegentlich hängen – dann sieht er kein
+einziges Gerät mehr. growcontroller erkennt das am Govee-Scanner (ohne Govee: Probe-Scan alle 5 min): Kommt 3 min lang kein
+Funkpaket, werden Bluetooth-Dienst und Chip zurückgesetzt, der Scan neu gestartet und ein Alarm per Push geschickt; GGS- und
+SANlight-Verbindungen bauen sich selbst neu auf. Höchstens 1 Reset je 10 min und 3 je Stunde – hilft das nicht, kommt einmal
+„bitte den Pi neu starten“ und es wird nicht weiter zurückgesetzt. Abschalten/Anpassen:
+`"bluetooth": {"watchdog": false}` bzw. `"stale_s": 180`, `"adapter": "hci0"`.
+
 ## Start
 ```
 python3 -m growcontroller -c config.json      # Standard: simulierter Sensor, GPIO wird ohne RPi.GPIO simuliert

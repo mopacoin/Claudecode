@@ -15,7 +15,8 @@ log = logging.getLogger("grow")
 RANGES = {"1h": 1, "6h": 6, "24h": 24, "7d": 168}
 LEARN_BIN = 15        # Grad je Lernpunkt-Fach (gleich der Messfahrt-Schrittweite)
 MIN_W = 2.0           # darunter gilt die Abluft-Steckdose als aus -> nicht lernen
-MANUAL_MAX_S = 600    # Kalibrier-Test endet spätestens nach 10 min von selbst
+MANUAL_MAX_S = 600    # Kalibrier-Test endet spätestens nach 10 min von selbst
+NOTE_STEADY_S = 600  # Abluft-Hinweise erst nach 10 min stabilem Zustand ins Protokoll
 SETTLE_S = 8          # nach jeder Servo-Bewegung so lange warten, bis der Messwert stimmt (Lüfter läuft ein)
 SAMPLES = 4           # dann Mittelwert aus so vielen echten Abfragen der Steckdose
 SWEEP_STEP = 15       # Schrittweite der automatischen Kalibrierung
@@ -316,7 +317,7 @@ class Controller:
                 ex_w, notes = rules.exhaust_plan(self.cfg["exhaust"], day, r.get("temp"), r.get("hum"), cl[f"temp_{p}"], cl[f"hum_{p}"],
                                                  r.get("room_temp"), r.get("room_hum"), active, dehum_min,
                                                  {k: v["w"] for k, v in self.exhaust_ff.items() if v["w"] is not None})
-            self._exhaust_notes(notes)
+            self._exhaust_notes(notes, now)
             ex = self.cfg["exhaust"]
             if ex["enabled"] and ex.get("intake_pct", 0) and any(o.proportional for o in self.outs.values()):
                 # Zuluft (Ein/Aus) unterstützt die Abluft, sobald diese kräftig läuft – wie die Unterdruck-Regelung
@@ -376,8 +377,9 @@ class Controller:
         o.state = o.watts is not None and o.watts > ex["min_w"] + 0.5
         self._learn_step(o)
 
-    def _exhaust_notes(self, notes):
-        """Hinweis ins Ereignisprotokoll, wenn die Raumluft eine Grenze setzt (nur bei Änderung)."""
+    def _exhaust_notes(self, notes, now=None):
+        """Hinweis ins Ereignisprotokoll, wenn die Raumluft eine Grenze setzt. Gemeldet wird erst, wenn der
+        Zustand NOTE_STEADY_S lang anhält – sonst pendelt die Meldung an der Grenze alle paar Sekunden."""
         notes_all, notes = notes, [n for n in notes if n["key"] in ("temp", "hum")]
         self.exhaust_interlock = [n for n in notes_all if n["key"] == "interlock"]
         cold = next((n for n in notes_all if n["key"] == "cold"), None)
@@ -385,15 +387,21 @@ class Controller:
             self.event("system", "Kälteschutz: Zelt unter Soll – Abluft entfeuchtet nicht, Entfeuchter übernimmt" if cold
                        else "Kälteschutz aus – Zelt wieder auf Soll-Temperatur")
         self.exhaust_cold = cold
-        old = {n["key"] for n in self.exhaust_notes}
-        new = {n["key"] for n in notes}
+        now = now or datetime.now()
         what = {"temp": "Temperatur", "hum": "Luftfeuchte"}
-        for k in new - old:
-            n = next(x for x in notes if x["key"] == k)
-            unit = "°C" if k == "temp" else "%"
-            self.event("system", f"{what[k]}-Ziel per Abluft nicht erreichbar: Raumluft erlaubt nur ca. {n['floor']} {unit}")
-        for k in old - new:
-            self.event("system", f"{what[k]}-Ziel per Abluft wieder erreichbar")
+        seen, told = self.__dict__.setdefault("_note_seen", {}), self.__dict__.setdefault("_note_told", set())
+        for k in what:
+            n = next((x for x in notes if x["key"] == k), None)
+            if k not in seen or seen[k][0] != bool(n):
+                seen[k] = (bool(n), now)
+            steady = (now - seen[k][1]).total_seconds() >= NOTE_STEADY_S
+            if n and steady and k not in told:
+                told.add(k)
+                unit = "°C" if k == "temp" else "%"
+                self.event("system", f"{what[k]}-Ziel per Abluft nicht erreichbar: Raumluft erlaubt nur ca. {n['floor']} {unit}")
+            elif not n and steady and k in told:
+                told.discard(k)
+                self.event("system", f"{what[k]}-Ziel per Abluft wieder erreichbar")
         self.exhaust_notes = notes
 
     # --- Kennlinie automatisch lernen (Leistungsmessung an der Abluft-Steckdose, Sensor-Prefix "exhaust_") ---

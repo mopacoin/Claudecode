@@ -36,6 +36,28 @@ class TestEventsSince(unittest.TestCase):
             self.assertIn("Temperatur zu hoch", [e["msg"] for e in again._events_since(since)])
 
 
+
+class TestExhaustNoteDebounce(unittest.TestCase):
+    def test_flapping_note_is_quiet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctl = make(tmp)
+            t0 = datetime(2026, 10, 26, 0, 28)
+            hum = [{"key": "hum", "floor": 50.7}]
+            msgs = lambda: [e["msg"] for e in ctl.events if "per Abluft" in e["msg"]]
+            for i in range(60):                       # 5 min lang alle 5 s hin und her
+                ctl._exhaust_notes(hum if i % 2 else [], t0 + timedelta(seconds=5 * i))
+            self.assertEqual(msgs(), [])
+            for i in range(0, 700, 5):                # jetzt 11 min dauerhaft
+                ctl._exhaust_notes(hum, t0 + timedelta(minutes=6, seconds=i))
+            self.assertEqual(msgs(), ["Luftfeuchte-Ziel per Abluft nicht erreichbar: Raumluft erlaubt nur ca. 50.7 %"])
+            self.assertEqual(ctl.exhaust_notes, hum)  # Anzeige im Dashboard bleibt aktuell
+            t1 = t0 + timedelta(minutes=20)
+            ctl._exhaust_notes([], t1); ctl._exhaust_notes(hum, t1 + timedelta(seconds=5))
+            ctl._exhaust_notes([], t1 + timedelta(seconds=10))
+            ctl._exhaust_notes([], t1 + timedelta(minutes=11))
+            self.assertEqual(msgs()[-1], "Luftfeuchte-Ziel per Abluft wieder erreichbar")
+            self.assertEqual(len(msgs()), 2)
+
 if __name__ == "__main__":
     unittest.main()
 

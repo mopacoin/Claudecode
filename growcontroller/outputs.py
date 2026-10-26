@@ -115,6 +115,14 @@ class Output:
             if (out > 0) != self.state:
                 self.changed = time.monotonic()
             self.level, self.state = pct, out > 0
+            if out == 0 and self.mode == "auto" and getattr(self.backend, "relay", False):
+                # Dunkel macht das Relais; der Dimmer behält seine Helligkeit für das nächste Einschalten.
+                # Nachts nichts auffrischen (Dimmer ist stromlos) und morgens die Helligkeit neu senden.
+                if self._out is not None:
+                    self._out = None
+                    self.backend.set(None)
+                    self.backend.healthy = None
+                return
             if out != self._out:
                 self._out = out
                 self.backend.set(pct)

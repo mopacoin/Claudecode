@@ -272,8 +272,12 @@ class SanlightBackend(WorkerBackend):
     keep_on_shutdown = True   # Beenden/Neustart des Dienstes lässt die Lampen, wie sie sind
     initial = False           # beim Start nicht erst auf 0 setzen (kein Flackern beim Neustart)
 
-    def __init__(self, link, address, max=100, min_pct=20, **kw):
+    def __init__(self, link, address, max=100, min_pct=20, relay=None, **kw):
         self.link, self.address, self.max, self.min_pct = link, int(str(address), 0), float(max), float(min_pct)
+        # relay: Lampe hängt am Licht-Relais. Dann schaltet das Relais die Dunkelheit und der Dimmer bekommt
+        # im Automatikbetrieb nie 0 % – sonst merkt er sich 0 % und bleibt beim Einschalten dunkel, wenn
+        # Bluetooth gerade nicht geht. None = der Controller erkennt es (gibt es einen Licht-Ausgang ohne Dimmer?)
+        self.relay = relay
         link.register(self.address)
         super().__init__(**{k: v for k, v in kw.items() if k in ("resend_s", "retry_s")} or {"resend_s": 300})
 

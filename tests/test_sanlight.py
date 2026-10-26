@@ -234,5 +234,65 @@ class TestController(unittest.TestCase):
             c2.shutdown()
 
 
+class TestRelayAndHang(unittest.TestCase):
+    """26.10.: SANlight-Verbindung hing ab Neustart; Lampen bekamen Strom, standen aber auf 0 %."""
+
+    def test_relay_lamp_never_gets_zero_in_auto(self):
+        sent = []
+
+        class Rec:
+            initial, keep_on_shutdown, healthy, max, relay, desired = False, True, False, 100, True, None
+            def level(self, v): return 0 if v < 20 else v
+            def set(self, v): sent.append(v)
+            def close(self): pass
+        o = outputs.Output("lampe", Rec(), role="light")
+        o.apply_dim(100)                              # Tag
+        o.apply_dim(10)                               # Sonnenuntergang unter Mindestleistung
+        o.apply_dim(0)                                # Nacht
+        self.assertEqual(sent, [100, None])           # keine 0 %, nur Auffrischen beendet
+        self.assertFalse(o.state)
+        self.assertIsNone(o.backend.healthy)          # stromlos nachts ist kein Fehler
+        o.apply_dim(100)                              # morgens: Helligkeit wieder senden
+        self.assertEqual(sent, [100, None, 100])
+        o.mode = "off"; o.apply_dim(100)              # ausdrücklich von Hand aus -> 0 wird gesendet
+        self.assertEqual(sent[-1], 0)
+
+    def test_controller_detects_relay(self):
+        link = FakeLink()
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(sl.SanlightLink, "get", return_value=link),                 mock.patch.object(outputs, "_gpio", return_value=mock.MagicMock()):
+            cfg = {"interval_s": 5, "sensors": {"air": {"driver": "sim"}},
+                   "sanlight": {"net_key": "00" * 16, "app_key": "11" * 16},
+                   "outputs": {"light": {"pin": 17, "role": "light"},
+                               "links": {"type": "sanlight", "address": "0x0003", "role": "light"},
+                               "solo": {"type": "sanlight", "address": "0x0004", "role": "light", "relay": False}},
+                   "light": {"on": "13:00", "off": "07:00"},
+                   "climate": {}, "irrigation": {"enabled": False, "interval_min": 60, "duration_s": 5}}
+            c = controller.Controller(cfg, d)
+            self.assertIs(c.outs["links"].backend.relay, True)
+            self.assertIs(c.outs["solo"].backend.relay, False)
+            c.shutdown()
+
+    def test_hanging_connect_times_out(self):
+        link = sl.SanlightLink("00" * 16, "11" * 16, 0x11, os.path.join(tempfile.mkdtemp(), "seq.json"), start=False)
+
+        async def hang(*a, **k):
+            await asyncio.sleep(3600)
+
+        async def nothing():
+            pass
+        link.mesh.connect, link.mesh.disconnect = hang, nothing
+
+        async def run():
+            link._conn_lock = asyncio.Lock()
+            with self.assertRaises(sl.Unreachable) as cm:
+                await link._ensure()
+            return cm.exception, link._conn_lock.locked()
+        with mock.patch.object(sl, "CONNECT_TIMEOUT_S", 0.1):
+            err, locked = link.loop.run_until_complete(run())
+        self.assertIn("Zeitüberschreitung", str(err))
+        self.assertFalse(locked)                      # Sperre wieder frei -> andere Befehle laufen
+        link.loop.close()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,6 +18,7 @@ Implementiert die benoetigten Teile des Bluetooth-Mesh-Profils:
 """
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
@@ -626,6 +627,9 @@ class Unreachable(Exception):
     """Kein Dimmer erreichbar (z. B. Lampen stromlos, weil das Licht per Relais aus ist)."""
 
 
+CONNECT_TIMEOUT_S = 35   # Scan (8 s) + Verbinden (20 s) + Beacon (5 s) + Reserve
+
+
 class SanlightLink:
     """Eine Mesh-Verbindung je Netz (geteilt von allen SANlight-Ausgängen), eigener Thread mit asyncio.
     Verbindet bei Bedarf, hält die Verbindung und liest regelmäßig Uptime/Helligkeit jedes Dimmers."""
@@ -668,13 +672,19 @@ class SanlightLink:
             if time.monotonic() < self._next_try:
                 raise Unreachable("SANlight: kein Dimmer erreichbar")
             try:
-                await self.mesh.connect(self.proxy, scan_timeout=8)
+                # harte Zeitgrenze: ein hängender BlueZ-Scan/Connect hielt sonst die Sperre für immer
+                # und blockierte alle Befehle an die Lampen (26.10.: ab Neustart 01:09 nichts mehr gesendet)
+                await asyncio.wait_for(self.mesh.connect(self.proxy, scan_timeout=8), CONNECT_TIMEOUT_S)
                 self.connected = True
             except Exception as e:
                 self.connected = False
                 self._next_try = time.monotonic() + 30   # nicht dauernd scannen (Govee teilt den Adapter)
-                await self.mesh.disconnect()
-                raise Unreachable(f"SANlight: {e}") from e
+                try:
+                    await asyncio.wait_for(self.mesh.disconnect(), 10)
+                except Exception:
+                    pass
+                why = "Verbindungsaufbau hängt (Zeitüberschreitung)" if isinstance(e, asyncio.TimeoutError) else (str(e) or type(e).__name__)
+                raise Unreachable(f"SANlight: {why}") from e
 
     async def _poller(self, every=60):
         while True:
@@ -698,7 +708,12 @@ class SanlightLink:
         async def go():
             await self._ensure()
             return await coro_fn()
-        return asyncio.run_coroutine_threadsafe(go(), self.loop).result(timeout)
+        fut = asyncio.run_coroutine_threadsafe(go(), self.loop)
+        try:
+            return fut.result(timeout)
+        except concurrent.futures.TimeoutError:
+            fut.cancel()
+            raise Unreachable("SANlight: keine Antwort (Zeitüberschreitung)") from None
 
     def set_level(self, address, percent):
         """Max-Helligkeit setzen (wie der Schieberegler der App). Wirft Unreachable/MeshError."""

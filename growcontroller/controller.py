@@ -71,6 +71,10 @@ class Controller:
         for n, r in self.saved.get("roles", {}).items():  # GGS-Steckdosen: im Dashboard gewählte Rolle
             if n in self.outs and self.outs[n].info.get("type") == "spiderfarmer" and r in GGS_ROLES + (outputs.MANUAL,):
                 self.outs[n].role = r
+        relay = any(o.role == "light" and not o.dimmable for o in self.outs.values())
+        for o in self.outs.values():  # SANlight am Licht-Relais: nie 0 % senden (siehe SanlightBackend)
+            if o.dimmable and getattr(o.backend, "relay", False) is None:
+                o.backend.relay = relay
         self.has_dehum = any(o.role == "dehumidifier" for o in self.outs.values())
         self.timers = {n: t for n, t in self.saved.get("timers", {}).items() if settings.validate_timer(t)[0]}
         for n, pct in self.saved.get("dim_levels", {}).items():  # Helligkeit je Lampe (Schieberegler)

@@ -188,9 +188,9 @@ function waitRestart() {   // nach ca. 5 s neu laden, sobald der Dienst wieder a
 // ---- Geräte-Editor ----
 let devData = null, devDirty = false;
 const DEV_SEC = {outputs: ['Ausgänge', 'type'], sensors: ['Sensoren', 'driver']};
-async function loadDevices() {
+async function loadDevEditor() {
   try { devData = await api('/api/devices'); devDirty = false; } catch (e) { devData = {error: e.message}; }
-  renderDevices();
+  renderDevEditor();
 }
 function devInput(sec, n, k, v) {
   const at = `data-ds="${sec}" data-dn="${esc(n)}" data-dk="${esc(k)}"`;
@@ -200,7 +200,7 @@ function devInput(sec, n, k, v) {
   const secret = v === devData.mask;
   return `<div class="ig"><input ${at} data-dt="str" value="${esc(v ?? '')}" ${secret ? 'placeholder="unverändert" title="Gespeicherter geheimer Wert – leer lassen bzw. ••••, um ihn zu behalten"' : ''}></div>`;
 }
-function renderDevices() {
+function renderDevEditor() {
   const box = $('#devEditor'); if (!box) return;
   if (!devData) { box.innerHTML = '<h3>Geräte</h3><div class="sub">wird geladen …</div>'; return; }
   if (devData.error) { box.innerHTML = `<h3>Geräte</h3><div class="sub">${esc(devData.error)}</div>`; return; }
@@ -231,20 +231,20 @@ document.addEventListener('click', async e => {
   if (!devData || !e.target.closest('#devEditor')) return;
   const t = e.target.closest('button'); if (!t) return;
   const d = t.dataset;
-  if (d.ddel) { const [s, n] = d.ddel.split('|'); if (!confirm(`„${n}“ entfernen?`)) return; delete devData[s][n]; devDirty = true; renderDevices(); }
-  else if (d.dfdel) { const [s, n, k] = d.dfdel.split('|'); delete devData[s][n][k]; devDirty = true; renderDevices(); }
+  if (d.ddel) { const [s, n] = d.ddel.split('|'); if (!confirm(`„${n}“ entfernen?`)) return; delete devData[s][n]; devDirty = true; renderDevEditor(); }
+  else if (d.dfdel) { const [s, n, k] = d.dfdel.split('|'); delete devData[s][n][k]; devDirty = true; renderDevEditor(); }
   else if (d.dfadd) {
     const [s, n] = d.dfadd.split('|'), k = document.querySelector(`[data-dnewk="${d.dfadd}"]`).value.trim();
     if (!/^[a-z0-9_]+$/.test(k)) return toast('Feldname nur a–z, 0–9, _', 1);
-    if (!(k in devData[s][n])) devData[s][n][k] = ''; devDirty = true; renderDevices();
+    if (!(k in devData[s][n])) devData[s][n][k] = ''; devDirty = true; renderDevEditor();
   } else if (d.dadd) {
     const s = d.dadd, n = $('#dnn-' + s).value.trim(), typ = $('#dnt-' + s).value;
     if (!/^[a-z0-9_]{1,40}$/.test(n)) return toast('Name nur a–z, 0–9, _', 1);
     if (devData.outputs[n] || devData.sensors[n]) return toast('Name ist schon vergeben', 1);
-    devData[s][n] = {[DEV_SEC[s][1]]: typ, ...JSON.parse(JSON.stringify(devData.types[s][typ]))}; devDirty = true; renderDevices();
-  } else if (t.id === 'devReload') loadDevices();
+    devData[s][n] = {[DEV_SEC[s][1]]: typ, ...JSON.parse(JSON.stringify(devData.types[s][typ]))}; devDirty = true; renderDevEditor();
+  } else if (t.id === 'devReload') loadDevEditor();
   else if (t.id === 'devSave') {
-    try { await api('/api/devices', {outputs: devData.outputs, sensors: devData.sensors}); devDirty = false; renderDevices(); toast('Gespeichert – aktiv nach „Neu starten“'); }
+    try { await api('/api/devices', {outputs: devData.outputs, sensors: devData.sensors}); devDirty = false; renderDevEditor(); toast('Gespeichert – aktiv nach „Neu starten“'); }
     catch (er) { toast(er.data?.error || er.message, 1); }
   } else if (t.id === 'devRestart') {
     if (devDirty && !confirm('Es gibt ungespeicherte Änderungen. Trotzdem neu starten?')) return;
@@ -252,7 +252,7 @@ document.addEventListener('click', async e => {
     try { await api('/api/restart', {}); toast('Neustart läuft …'); waitRestart(); } catch (er) { toast(er.message, 1); }
   }
 });
-function loadSystemExtra() { renderBackupCard(); if (!devDirty) loadDevices(); }
+function loadSystemExtra() { renderBackupCard(); if (!devDirty) loadDevEditor(); }
 
 function renderExtra() {
   renderHealth();

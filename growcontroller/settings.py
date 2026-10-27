@@ -36,6 +36,7 @@ SPEC = {
         "interlock_dehum": ("bool",), "interlock_hum": ("bool",), "interlock_heat": ("bool",), "temp_priority": ("bool",),
         "dehum_assist_min": ("int", 0, 240), "ramp_w_min": ("num", 0, 500), "auto_learn": ("bool",),
         "intake_pct": ("int", 0, 100), "learn_effect": ("bool",), "use_effect": ("bool",), "cold_protect": ("bool",),
+        "cold_hum_max": ("int", 40, 95),
     },
     "grow": {"stage": ("str", 40), "start_date": ("date",)},  # stage = Zyklus-ID (eingebaut oder eigen), "" = keiner
     # Crop Steering: gießt nach Bodenfeuchte statt nach Timer (ersetzt dann die Intervall-Bewässerung)
@@ -59,7 +60,7 @@ DEFAULTS = {
                 "room_aware": True, "room_margin": 0.5, "interlock_dehum": True, "interlock_hum": True,
                 "interlock_heat": True, "temp_priority": True, "dehum_assist_min": 20, "ramp_w_min": 15,
                 "auto_learn": True, "intake_pct": 40,
-                "learn_effect": True, "use_effect": True, "cold_protect": True},
+                "learn_effect": True, "use_effect": True, "cold_protect": True, "cold_hum_max": 60},
     "grow": {"stage": "", "start_date": ""},
     "steering": {"enabled": False, "sensor": "", "target": 30, "p1_delay_min": 60, "shot_s": 20, "gap_min": 20,
                  "p2_drop": 3, "stop_min": 120, "max_shots": 20},

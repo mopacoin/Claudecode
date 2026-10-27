@@ -269,7 +269,7 @@ class TestColdProtection(unittest.TestCase):
         return rules.exhaust_plan({**self.ex, **kw}, True, temp, hum, 24, 55)
 
     def test_cold_keeps_base_load(self):
-        w, notes = self.plan(21.8, 62)                     # 2,2 °C zu kalt, 7 % zu feucht
+        w, notes = self.plan(21.8, 59)                     # 2,2 °C zu kalt, 4 % zu feucht, unter 60 %
         self.assertEqual(w, self.ex["min_w"])
         self.assertEqual([n["key"] for n in notes], ["cold"])
 
@@ -277,12 +277,20 @@ class TestColdProtection(unittest.TestCase):
         self.assertGreater(self.plan(24.5, 62)[0], self.ex["min_w"])
 
     def test_very_humid_still_vents_the_peak(self):
-        w, notes = self.plan(21.8, 80)                     # über Ziel + 2 Bänder (75 %) -> Schimmelschutz
+        w, notes = self.plan(21.8, 80, cold_hum_max=90)    # über Ziel + 2 Bänder (75 %) -> Schimmelschutz
         self.assertGreater(w, self.ex["min_w"])
         self.assertTrue(notes[0]["assist"])
 
+    def test_humidity_over_60_beats_cold(self):
+        w, notes = self.plan(21.8, 62)                     # zu kalt, aber über 60 % -> Feuchte hat Vorrang
+        self.assertGreater(w, self.ex["min_w"])
+        self.assertNotIn("cold", [n["key"] for n in notes])
+        self.assertEqual(self.plan(21.8, 62, cold_hum_max=65)[0], self.ex["min_w"])   # Grenze einstellbar
+        self.assertFalse(rules.too_cold(self.ex, 21.8, 24, 61))
+        self.assertTrue(rules.too_cold(self.ex, 21.8, 24, 60))
+
     def test_can_be_switched_off(self):
-        self.assertGreater(self.plan(21.8, 62, cold_protect=False)[0], self.ex["min_w"])
+        self.assertGreater(self.plan(21.8, 59, cold_protect=False)[0], self.ex["min_w"])
 
     def test_dehumidifier_takes_over_when_cold(self):
         from growcontroller import settings

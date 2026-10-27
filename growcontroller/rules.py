@@ -245,8 +245,11 @@ def rh_at(t, ah):
     return ah * (273.15 + t) / (6.112 * math.exp(17.67 * t / (t + 243.5)) * 2.1674)
 
 
-def too_cold(cfg, temp, t_target):
-    """Kälteschutz: Zelt unter Soll-Temperatur -> Abluft entfeuchtet nicht (sie zieht kühlere Raumluft nach)."""
+def too_cold(cfg, temp, t_target, hum=None):
+    """Kälteschutz: Zelt unter Soll-Temperatur -> Abluft entfeuchtet nicht (sie zieht kühlere Raumluft nach).
+    Über `cold_hum_max` (Standard 60 %) Luftfeuchte hat die Feuchte Vorrang: dann entfeuchtet die Abluft trotzdem."""
+    if hum is not None and hum > cfg.get("cold_hum_max", 60):
+        return False
     return cfg.get("cold_protect", True) and temp is not None and t_target is not None and temp < t_target
 
 
@@ -281,7 +284,7 @@ def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=No
                               "tent_ah": round(abs_hum(temp, hum), 2), "useless": floor_h >= hum})
     ft = (temp - t_goal) / cfg["temp_band"] if temp is not None else 0
     fh = (hum - h_goal) / cfg["hum_band"] if hum is not None else 0
-    if too_cold(cfg, temp, t_target) and fh > 0:
+    if too_cold(cfg, temp, t_target, hum) and fh > 0:
         # Kälteschutz: zu kalt -> Feuchte übernimmt der Entfeuchter (seine Abwärme hilft sogar); nur bei sehr hoher
         # Feuchte (über Ziel + 2 Bänder) lüftet die Abluft den Überschuss trotzdem (Schimmelschutz)
         fh = max(0.0, (hum - h_goal - 2 * cfg["hum_band"]) / cfg["hum_band"])

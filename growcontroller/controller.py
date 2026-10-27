@@ -641,7 +641,7 @@ class Controller:
                 need_w = rules.watts_for_effect(curve, goal_ah - room_ah, ex["min_w"])
             else:      # noch nichts gelernt: nur bei deutlich trockenerer Raumluft
                 can, need_w = rules.rh_at(t, room_ah) + 5 <= h_target, None
-            cold = rules.too_cold(ex, t, self.effective_climate(day)["temp_day" if day else "temp_night"])
+            cold = rules.too_cold(ex, t, self.effective_climate(day)["temp_day" if day else "temp_night"], r.get("hum"))
             exi = {"can_dry": can and now_w < top - 3 and not cold,  # zu kalt: Abluft soll nicht entfeuchten
                    "extra_w": round(max(0.0, (need_w or top) - now_w), 1)}
         return {"trend": self._trend(), "devices": devs, "exhaust": exi, "has_dehum": self.has_dehum,

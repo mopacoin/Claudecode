@@ -307,6 +307,10 @@ class Controller:
                     self.smart = {"reasons": {}, "forecast": None}
                     want.update(rules.climate(cl, day, r.get("temp"), r.get("hum"), cur, now, self.has_dehum))
             want["pump"] = self._pump(now)
+            stage = 1
+            if not self.stale():
+                cl = self.effective_climate(day)
+                stage = rules.heater_stage(self.readings.get("temp"), cl["temp_day" if day else "temp_night"], cl["temp_hyst"])
             want["vent"] = want["intake"] = want["fan"]  # ohne stufenlose Abluft: folgen dem Lüfterbedarf
             ex_w, notes = None, []
             if not self.stale():
@@ -337,6 +341,10 @@ class Controller:
                 elif o.role == "timer":  # Zeitschaltung: eigener Plan je Steckdose
                     o.apply(rules.timer_on(self.timers.get(n), self.cfg["light"], now))
                 else:
+                    if hasattr(o.backend, "set_stage"):  # Spider-Farmer-Heizer: Stufe nach Abstand zum Ziel
+                        o.backend.set_stage(stage)
+                        if o.role in self.smart["reasons"] and want.get(o.role):
+                            self.smart["reasons"][o.role] += f" · Stufe {o.backend.stage}"
                     o.apply(want.get(o.role, False))
                 if o.known and o.state != self._prev_state[n]:
                     first = self._prev_state[n] is None  # erste Meldung eines Handschalt-Geräts ist kein Schaltvorgang

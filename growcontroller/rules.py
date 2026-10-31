@@ -99,6 +99,13 @@ def hysteresis_high(value, current, low, high):
     return current
 
 
+def heater_stage(temp, target, hyst):
+    """Heizstufe 1–10: knapp unter dem Ziel 1, ab zwei Hysteresen darunter 10."""
+    if temp is None:
+        return 1
+    return max(1, min(10, 1 + round(9 * (target - temp) / (2 * hyst))))
+
+
 def climate(cfg, day, temp, hum, cur, now, has_dehum=False):
     p = "day" if day else "night"
     tt, th = cfg[f"temp_{p}"], cfg["temp_hyst"]

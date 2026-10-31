@@ -402,17 +402,25 @@ class GGSLink:
         h = (self.dev_sta or {}).get("data", {}).get("heater")
         return None if h is None else bool(h.get("on"))
 
-    def set_heater(self, on, timeout=20):
-        """Schaltet den Heizer manuell (device.heater, modeType 0) wie die App; Stufe bleibt erhalten."""
+    def heater_level(self):
+        """Gemeldete Heizstufe 1–10 (0 = aus) oder None."""
+        return ((self.dev_sta or {}).get("data", {}).get("heater") or {}).get("level")
+
+    def set_heater(self, on, level=None, timeout=20):
+        """Schaltet den Heizer manuell (device.heater, modeType 0) wie die App; `level` 1–10 = Stufe (mLevel),
+        None lässt die gespeicherte Stufe."""
         base = (self.config or {}).get("device", {}).get("heater")
         if base is None:
             raise RuntimeError("Spider Farmer: Heizer-Konfiguration noch nicht gelesen")
-        if self.heater() == on and base.get("modeType", 0) == 0 and base.get("mOnOff") == int(on):
-            return
         cfg = {**base, "modeType": 0, "mOnOff": int(on)}
+        if on and level:
+            cfg["mLevel"] = int(level)
+        done = lambda: self.heater() == on and (not on or self.heater_level() == cfg.get("mLevel", self.heater_level()))
+        if cfg == base and done():
+            return  # steht schon richtig -> nicht in den Flash des Controllers schreiben
         self.cmds.put(request("setConfigField", self.pid, self.uid, {"keyPath": ["device", "heater"], "heater": cfg}))
         self.config.setdefault("device", {})["heater"] = cfg  # nächster Vergleich ohne erneutes Lesen
-        self._wait(lambda: self.heater() == on, timeout, "Heizer meldet keinen neuen Zustand")
+        self._wait(done, timeout, "Heizer meldet keinen neuen Zustand")
 
     def close(self):
         self.stopping = True

@@ -37,9 +37,9 @@ DEV = [bytes.fromhex(h) for h in (
     "68756d69536f696c223a302c224543536f696c223a312e392c2274797065436f6465223a34333532317d5d7d7df752")]
 
 
-def dev_sta(o5, psmode=1, heater=1):
+def dev_sta(o5, psmode=1, heater=1, level=5):
     return {"method": "getDevSta", "code": 200, "data": {"outlet": {"psmode": psmode, "O5": {"on": o5}}, "sensor": {"temp": 20},
-                                                         "heater": {"on": 1, "level": 5} if heater else {"level": 0}}}
+                                                         "heater": {"on": 1, "level": level} if heater else {"level": 0}}}
 
 
 class Fake:
@@ -75,7 +75,8 @@ class Fake:
             sec, key = req["params"]["keyPath"]
             self.cfg[sec][key] = req["params"][key]
             if key == "heater":   # wie die echte Leiste: aus = kein "on" mehr im Status
-                self.push(dev_sta(1, 1, heater=req["params"]["heater"]["mOnOff"]))          # ersetzt die ganze Steckdosen-Konfiguration
+                h = req["params"]["heater"]
+                self.push(dev_sta(1, 1, heater=h["mOnOff"], level=h["mLevel"]))          # ersetzt die ganze Steckdosen-Konfiguration
             if self.psmode == 1 and key == "O5" and req["params"][key].get("modeType") == 0:
                 self.push(dev_sta(req["params"]["O5"]["mOnOff"], 1))
         if req["method"] == "setOutlet" and self.psmode == 0 and req["params"]["num"] == 5:
@@ -212,7 +213,20 @@ class TestLink(unittest.TestCase):
         n = len(Fake.inst.written)
         link.set_heater(False)                     # steht schon -> nichts schreiben
         self.assertEqual(len(Fake.inst.written), n)
-        o.backend.close()
+        link.set_heater(True, 8)
+        self.assertEqual((link.heater(), link.heater_level()), (True, 8))
+        self.assertEqual(Fake.inst.cfg["device"]["heater"]["mLevel"], 8)
+        b = o.backend
+        b.sent = True
+        b.set_stage(12)                            # begrenzt auf max_level 10
+        self.assertEqual(b.stage, 10)
+        b.set_stage(3)                             # zu früh -> bleibt
+        self.assertEqual(b.stage, 10)
+        b.close()
+
+    def test_heater_stage(self):
+        from growcontroller import rules
+        self.assertEqual([rules.heater_stage(t, 22, 1) for t in (22.5, 21.9, 21, 20, 18)], [1, 1, 5, 10, 10])
 
     def test_output_type_registered(self):
         _, outs, _ = outputs.create_all({"outputs": {"o5": {"type": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "outlet": 5}}})

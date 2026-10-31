@@ -186,6 +186,12 @@ def make_handler(ctl, token):
                     return self._send(200, ctl.status())
                 except ValueError as e:
                     return self._send(400, {"error": str(e)})
+            if len(parts) == 3 and parts[:2] == ["api", "heat"]:
+                try:
+                    ctl.set_heat_stage(parts[2], body.get("stage"))
+                    return self._send(200, ctl.status())
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
             if len(parts) == 3 and parts[:2] == ["api", "dim"]:
                 try:
                     ctl.set_dim(parts[2], body.get("pct"))

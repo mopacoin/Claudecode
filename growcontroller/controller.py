@@ -81,6 +81,9 @@ class Controller:
         for n, pct in self.saved.get("dim_levels", {}).items():  # Helligkeit je Lampe (Schieberegler)
             if n in self.outs and self.outs[n].dimmable and isinstance(pct, (int, float)) and 0 <= pct <= 100:
                 self.outs[n].backend.max = float(pct)
+        for n, s in self.saved.get("heat_stage", {}).items():  # feste Heizstufe (Regler im Dashboard)
+            if n in self.outs and hasattr(self.outs[n].backend, "fixed") and s in range(1, 11):
+                self.outs[n].backend.fixed = s
         for n, m in self.saved.get("modes", {}).items():
             if n in self.outs and m in ("auto", "on", "off"):
                 self.outs[n].mode = m
@@ -957,7 +960,7 @@ class Controller:
                 "outputs": {n: {"state": o.state, "mode": o.mode, "role": o.role,
                                 "ok": getattr(o.backend, "healthy", True), "info": o.info,
                                 "proportional": o.proportional, "angle": o.angle, "watts": o.watts,
-                                "ggs": self._ggs_info(o), "dim": self._dim_info(o),
+                                "ggs": self._ggs_info(o), "dim": self._dim_info(o), "heat": self._heat_info(o),
                                 "timer": self._timer_info(n, o)} for n, o in self.outs.items()},
             }
 
@@ -1379,6 +1382,28 @@ class Controller:
             o.level = o._out = None  # sofort neu senden
             o.apply_dim(rules.light_level(self.cfg["light"], datetime.now()))
             self.event("output", f"{name}: Helligkeit {round(pct)} %")
+
+    def set_heat_stage(self, name, n):
+        """Heizstufe 1–10 fest vorgeben oder 0 = Automatik (nach Abstand zum Ziel). Wirft ValueError."""
+        o = self.outs.get(name)
+        if not o or not hasattr(o.backend, "fixed") or isinstance(n, bool) or n not in range(0, 11):
+            raise ValueError("Heizer und Stufe 0…10 erforderlich")
+        with self.lock:
+            o.backend.fixed = n or None
+            self.saved.setdefault("heat_stage", {})[name] = n
+            settings.save(self._p("settings.json"), self.saved)
+            if n:
+                o.backend.set_stage(n, now=True)
+            else:
+                o.backend._stage_t = -1e9  # Automatik greift beim nächsten Regeldurchlauf sofort
+            self.event("output", f"{name}: Heizstufe {n or 'Auto'}")
+
+    def _heat_info(self, o):
+        """Für das Dashboard: Stufe des Spider-Farmer-Heizers (gesetzt, fest, vom Heizer gemeldet)."""
+        b = o.backend
+        if not hasattr(b, "fixed"):
+            return None
+        return {"stage": b.stage, "fixed": b.fixed, "max": b.max_level, "actual": b.link.heater_level()}
 
     def _dim_info(self, o):
         """Für das Dashboard: gesendete Helligkeit und Status, den der SANlight-Dimmer meldet."""

@@ -265,19 +265,20 @@ class SpiderFarmerBackend(WorkerBackend):
 
 class GGSHeaterBackend(SpiderFarmerBackend):
     """Spider-Farmer-Heizer, der als Zubehör am GGS-Controller hängt (nicht an O1–O5).
-    Stufe 1–10 setzt der Controller per set_stage, höchstens bis `max_level`."""
-    STAGE_MIN_S = 300   # Stufe höchstens alle 5 min ändern (jede Änderung schreibt in den Flash der Leiste)
+    Stufe 1–10 setzt der Controller per set_stage, höchstens bis `max_level`; `fixed` = feste Stufe vom Dashboard."""
+    STAGE_MIN_S = 60   # Stufe höchstens jede Minute ändern (jede Änderung schreibt in den Flash der Leiste)
 
     def __init__(self, mac, uid="0", pid=None, max_level=10, **kw):
-        self.max_level, self.stage, self._stage_t = max(1, min(10, int(max_level))), None, -1e9
+        self.max_level, self.stage, self._stage_t, self.fixed = max(1, min(10, int(max_level))), None, -1e9, None
         super().__init__(mac, 0, uid, pid, **kw)
 
-    def set_stage(self, n):
-        n = max(1, min(self.max_level, int(n)))
-        now = time.monotonic()
-        if n == self.stage or (self.sent and now - self._stage_t < self.STAGE_MIN_S):
+    def set_stage(self, n, now=False):
+        """now=True: sofort (Dashboard), sonst höchstens alle STAGE_MIN_S."""
+        n = self.fixed or max(1, min(self.max_level, int(n)))
+        t = time.monotonic()
+        if n == self.stage or (self.sent and not now and t - self._stage_t < self.STAGE_MIN_S):
             return  # aus: Stufe gilt beim nächsten Einschalten sofort
-        self.stage, self._stage_t = n, now
+        self.stage, self._stage_t = n, t
         if self.sent:
             self.wake.set()
 

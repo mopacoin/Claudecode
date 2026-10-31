@@ -217,11 +217,21 @@ class TestLink(unittest.TestCase):
         self.assertEqual((link.heater(), link.heater_level()), (True, 8))
         self.assertEqual(Fake.inst.cfg["device"]["heater"]["mLevel"], 8)
         b = o.backend
-        b.sent = True
+        b.set(True)
+        for _ in range(100):
+            if b.sent: break
+            time.sleep(0.05)
         b.set_stage(12)                            # begrenzt auf max_level 10
         self.assertEqual(b.stage, 10)
         b.set_stage(3)                             # zu früh -> bleibt
         self.assertEqual(b.stage, 10)
+        b.fixed = 4
+        b.set_stage(9, now=True)                   # feste Stufe vom Dashboard gewinnt, sofort
+        self.assertEqual(b.stage, 4)
+        for _ in range(100):
+            if link.heater_level() == 4: break
+            time.sleep(0.05)
+        self.assertEqual(link.heater_level(), 4)
         b.close()
 
     def test_heater_stage(self):

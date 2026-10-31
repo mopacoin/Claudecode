@@ -15,7 +15,7 @@ log = logging.getLogger("grow")
 RANGES = {"1h": 1, "6h": 6, "24h": 24, "7d": 168}
 LEARN_BIN = 15        # Grad je Lernpunkt-Fach (gleich der Messfahrt-Schrittweite)
 MIN_W = 2.0           # darunter gilt die Abluft-Steckdose als aus -> nicht lernen
-MANUAL_MAX_S = 600    # Kalibrier-Test endet spätestens nach 10 min von selbst
+MANUAL_MAX_S = 600    # Kalibrier-Test endet spätestens nach 10 min von selbst
 NOTE_STEADY_S = 600  # Abluft-Hinweise erst nach 10 min stabilem Zustand ins Protokoll
 SETTLE_S = 8          # nach jeder Servo-Bewegung so lange warten, bis der Messwert stimmt (Lüfter läuft ein)
 SAMPLES = 4           # dann Mittelwert aus so vielen echten Abfragen der Steckdose
@@ -123,7 +123,7 @@ class Controller:
         """Bluetooth-Selbstheilung, sobald Bluetooth-Geräte genutzt werden (abschaltbar: "bluetooth": {"watchdog": false})."""
         import sys
         bc = self.cfg.get("bluetooth") or {}
-        ble = any(c.get("driver") in ("govee", "spiderfarmer") for c in self.cfg["sensors"].values())             or any(c.get("type") in ("spiderfarmer", "sanlight") for c in self.cfg["outputs"].values())
+        ble = any(c.get("driver") in ("govee", "spiderfarmer") for c in self.cfg["sensors"].values())             or any(c.get("type") in ("spiderfarmer", "ggs_heater", "sanlight") for c in self.cfg["outputs"].values())
         if not ble or not bc.get("watchdog", True) or not sys.platform.startswith("linux"):
             return None
         from . import btwatch

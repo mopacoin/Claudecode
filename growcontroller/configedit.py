@@ -20,6 +20,7 @@ OUTPUT_TYPES = {
     "mqtt_servo": {"topic": "servo/xyz/set", "angle_on": 90, "angle_off": 0, "payload": "{angle}", "role": "manual"},
     "spiderfarmer": {"mac": "", "uid": "", "outlet": 1, "role": "manual"},
     "sanlight": {"address": "0x0002", "max": 100, "role": "manual"},
+    "ggs_heater": {"mac": "", "uid": "", "role": "heater"},
 }
 SENSOR_TYPES = {
     "govee": {"mac": ""},
@@ -29,7 +30,7 @@ SENSOR_TYPES = {
 }
 # Pflichtfelder je Typ (ohne sie startet das Gerät nicht)
 REQUIRED = {"gpio": ("pin",), "meross_local": ("ip", "key"), "tuya": ("dev_id", "local_key"), "mqtt_servo": ("topic",),
-            "spiderfarmer": ("mac",), "sanlight": ("address",), "govee": ("mac",), "meross_power": ("ip", "key"), "dht22": ("pin",)}
+            "spiderfarmer": ("mac",), "ggs_heater": ("mac",), "sanlight": ("address",), "govee": ("mac",), "meross_power": ("ip", "key"), "dht22": ("pin",)}
 ROLES = ("light", "fan", "heater", "humidifier", "dehumidifier", "pump", "vent", "intake", "manual", "timer")
 
 

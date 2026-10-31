@@ -176,6 +176,8 @@ def _make_backend(typ, c, cfg, gpio, hub):
         return backends.TuyaBackend(**c)
     if typ == "spiderfarmer":
         return backends.SpiderFarmerBackend(**c)
+    if typ == "ggs_heater":
+        return backends.GGSHeaterBackend(**c)
     if typ == "sanlight":
         from .sanlight import SanlightLink
         return backends.SanlightBackend(SanlightLink.get(**cfg["sanlight"]), **c)

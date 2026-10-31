@@ -397,6 +397,23 @@ class GGSLink:
                     raise RuntimeError(self.error or f"Spider Farmer: O{n} meldet keinen neuen Zustand")
                 self.cond.wait(left)
 
+    def heater(self):
+        """Zubehör-Heizer am GGS: True/False, None solange keine Daten (aus = kein "on" im Status)."""
+        h = (self.dev_sta or {}).get("data", {}).get("heater")
+        return None if h is None else bool(h.get("on"))
+
+    def set_heater(self, on, timeout=20):
+        """Schaltet den Heizer manuell (device.heater, modeType 0) wie die App; Stufe bleibt erhalten."""
+        base = (self.config or {}).get("device", {}).get("heater")
+        if base is None:
+            raise RuntimeError("Spider Farmer: Heizer-Konfiguration noch nicht gelesen")
+        if self.heater() == on and base.get("modeType", 0) == 0 and base.get("mOnOff") == int(on):
+            return
+        cfg = {**base, "modeType": 0, "mOnOff": int(on)}
+        self.cmds.put(request("setConfigField", self.pid, self.uid, {"keyPath": ["device", "heater"], "heater": cfg}))
+        self.config.setdefault("device", {})["heater"] = cfg  # nächster Vergleich ohne erneutes Lesen
+        self._wait(lambda: self.heater() == on, timeout, "Heizer meldet keinen neuen Zustand")
+
     def close(self):
         self.stopping = True
 

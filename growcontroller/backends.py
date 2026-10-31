@@ -263,6 +263,19 @@ class SpiderFarmerBackend(WorkerBackend):
         return self.link.outlet(self.outlet)
 
 
+class GGSHeaterBackend(SpiderFarmerBackend):
+    """Spider-Farmer-Heizer, der als Zubehör am GGS-Controller hängt (nicht an O1–O5)."""
+
+    def __init__(self, mac, uid="0", pid=None, **kw):
+        super().__init__(mac, 0, uid, pid, **kw)
+
+    def _send(self, on):
+        self.link.set_heater(bool(on))
+
+    def actual(self):
+        return self.link.heater()
+
+
 class SanlightBackend(WorkerBackend):
     """SANlight-LED-Dimmer per Bluetooth Mesh. set(True/False) oder Helligkeit 0…100 %.
     Gesendet wird die Max-Helligkeit des Dimmers; `max` (Standard 100) ist die Helligkeit bei 100 %,

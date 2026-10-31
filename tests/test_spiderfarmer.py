@@ -37,8 +37,9 @@ DEV = [bytes.fromhex(h) for h in (
     "68756d69536f696c223a302c224543536f696c223a312e392c2274797065436f6465223a34333532317d5d7d7df752")]
 
 
-def dev_sta(o5, psmode=1):
-    return {"method": "getDevSta", "code": 200, "data": {"outlet": {"psmode": psmode, "O5": {"on": o5}}, "sensor": {"temp": 20}}}
+def dev_sta(o5, psmode=1, heater=1):
+    return {"method": "getDevSta", "code": 200, "data": {"outlet": {"psmode": psmode, "O5": {"on": o5}}, "sensor": {"temp": 20},
+                                                         "heater": {"on": 1, "level": 5} if heater else {"level": 0}}}
 
 
 class Fake:
@@ -50,7 +51,8 @@ class Fake:
     def __init__(self, mac):
         self.written, self.rx = [], queue.Queue()
         self.cfg = {"outlet": {"O5": {"modeType": 0, "mOnOff": 1, "wateringEnv": {"period": [{"enabled": 1, "dry": 50}]}}},
-                    "device": {"senConfig": [{"id": "AA01", "label": "lit"}]}}
+                    "device": {"senConfig": [{"id": "AA01", "label": "lit"}],
+                               "heater": {"modeType": 0, "mOnOff": 1, "mLevel": 5, "level": 1}}}
         Fake.inst = self
         self.push(dev_sta(1, self.psmode))
 
@@ -70,8 +72,10 @@ class Fake:
         if req["method"] == "getConfigFile":
             self.push({"method": "getConfigFile", "code": 200, "data": {"configFile": json.loads(json.dumps(self.cfg))}})
         if req["method"] == "setConfigField":
-            key = req["params"]["keyPath"][1]
-            self.cfg["outlet"][key] = req["params"][key]          # ersetzt die ganze Steckdosen-Konfiguration
+            sec, key = req["params"]["keyPath"]
+            self.cfg[sec][key] = req["params"][key]
+            if key == "heater":   # wie die echte Leiste: aus = kein "on" mehr im Status
+                self.push(dev_sta(1, 1, heater=req["params"]["heater"]["mOnOff"]))          # ersetzt die ganze Steckdosen-Konfiguration
             if self.psmode == 1 and key == "O5" and req["params"][key].get("modeType") == 0:
                 self.push(dev_sta(req["params"]["O5"]["mOnOff"], 1))
         if req["method"] == "setOutlet" and self.psmode == 0 and req["params"]["num"] == 5:
@@ -192,6 +196,23 @@ class TestLink(unittest.TestCase):
         link.set_outlet(5, True)                   # meldet schon "an"
         time.sleep(0.2)
         self.assertFalse(any(json.loads(sf.decrypt(f[20:-2]))["method"] == "setConfigField" for f in Fake.inst.written))
+
+    def test_heater_switch_keeps_level(self):
+        _, outs, _ = outputs.create_all({"outputs": {"heizer": {"type": "ggs_heater", "mac": "80:F1:B2:B1:C7:F2", "role": "heater"}}})
+        o = outs["heizer"]
+        link = o.backend.link
+        self.wait_data(link)
+        for _ in range(100):
+            if link.config: break
+            time.sleep(0.05)
+        self.assertTrue(o.backend.actual())
+        link.set_heater(False)
+        self.assertFalse(o.backend.actual())
+        self.assertEqual(Fake.inst.cfg["device"]["heater"], {"modeType": 0, "mOnOff": 0, "mLevel": 5, "level": 1})
+        n = len(Fake.inst.written)
+        link.set_heater(False)                     # steht schon -> nichts schreiben
+        self.assertEqual(len(Fake.inst.written), n)
+        o.backend.close()
 
     def test_output_type_registered(self):
         _, outs, _ = outputs.create_all({"outputs": {"o5": {"type": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "outlet": 5}}})

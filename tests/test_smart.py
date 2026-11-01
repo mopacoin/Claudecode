@@ -84,6 +84,21 @@ class TestDeviceLearning(unittest.TestCase):
             self.assertEqual(settings.load(f"{d}/settings.json")["effect"]["devices"]["entf"]["n"], 1)
             c.shutdown()
 
+    def test_learns_short_heater_run_despite_unrelated_outlet(self):
+        with tempfile.TemporaryDirectory() as d:
+            c = make(d)
+            c.outs = {"heiz": outputs.Output("heiz", Rec(), role="heater"),
+                      "ggs_o3": outputs.Output("ggs_o3", Rec(), role="manual")}
+            t_on = datetime(2026, 1, 1, 12, 0)
+            for m in range(-10, 9):   # 6 min an, dann aus; eine GGS-Steckdose ohne Rolle schaltet dazwischen
+                c.minutes.append({"t": (t_on + timedelta(minutes=m)).isoformat(timespec="seconds"),
+                                  "temp": 22.0 + (0.05 * m if 0 <= m < 6 else 0), "hum": 60.0,
+                                  "heiz": int(0 <= m < 6), "ggs_o3": int(m % 2)})
+            c._dev_sample("heiz", c.outs["heiz"], t_on, t_on + timedelta(minutes=8))
+            self.assertEqual(c.dev_eff["heiz"]["n"], 1)
+            self.assertAlmostEqual(c.dev_eff["heiz"]["t"], 3.0, delta=0.1)
+            c.shutdown()
+
     def test_skips_when_other_device_switched(self):
         with tempfile.TemporaryDirectory() as d:
             c = make(d)

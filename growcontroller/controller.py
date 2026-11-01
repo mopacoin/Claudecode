@@ -321,7 +321,11 @@ class Controller:
                 cl = self.effective_climate(day)
                 r = self.readings
                 self.exhaust_ff = self._effect_ff(day, cl[f"temp_{p}"], cl[f"hum_{p}"])
-                ex_w, notes = rules.exhaust_plan(self.cfg["exhaust"], day, r.get("temp"), r.get("hum"), cl[f"temp_{p}"], cl[f"hum_{p}"],
+                ex_cfg = self.cfg["exhaust"]
+                if not any(o.role == "dehumidifier" and o.mode != "off" and o.backend.healthy is not False for o in self.outs.values()):
+                    # kein Entfeuchter bereit: dann muss die Abluft entfeuchten, auch wenn es kühl ist oder die Heizung läuft
+                    ex_cfg = {**ex_cfg, "cold_protect": False, "interlock_heat": False}
+                ex_w, notes = rules.exhaust_plan(ex_cfg, day, r.get("temp"), r.get("hum"), cl[f"temp_{p}"], cl[f"hum_{p}"],
                                                  r.get("room_temp"), r.get("room_hum"), active, dehum_min,
                                                  {k: v["w"] for k, v in self.exhaust_ff.items() if v["w"] is not None})
             self._exhaust_notes(notes, now)
@@ -589,8 +593,8 @@ class Controller:
                 self._ep[n] = ep = {"on": now, "done": False}
             if ep and not ep["done"]:
                 dur = (now - ep["on"]).total_seconds() / 60
-                if dur >= DEV_ON_MIN or (not o.state and dur >= DEV_SETTLE_MIN + 6):
-                    ep["done"] = True
+                if dur >= DEV_ON_MIN or (not o.state and dur >= DEV_SETTLE_MIN + 3):
+                    ep["done"] = True  # Heizung läuft oft nur 5–6 min: auch kurze Läufe bis zum Ausschalten auswerten
                     self._dev_sample(n, o, ep["on"], now)
             if not o.state and ep is not None:
                 self._ep.pop(n)
@@ -601,11 +605,14 @@ class Controller:
             return [r for r in rows if a <= datetime.fromisoformat(r["t"]) < b]
         before = win(t_on - timedelta(minutes=10), t_on)
         after = win(t_on + timedelta(minutes=DEV_SETTLE_MIN), t_end + timedelta(seconds=1))
-        if len(before) < 6 or len(after) < 6:
+        off = next((i for i, r in enumerate(after) if not r.get(name, 1)), None)
+        after = after[:off]  # nur bis zum Ausschalten
+        if len(before) < 6 or len(after) < 3:
             return self._dev_skip(name, "zu wenig Messwerte")
-        if any(r.get(name) for r in before) or not all(r.get(name, 1) for r in after):
-            return self._dev_skip(name, "Gerät hat zwischendurch geschaltet")
-        others = [m for m, x in self.outs.items() if m != name and not x.proportional and x.role not in ("intake", "pump")]
+        if any(r.get(name) for r in before):
+            return self._dev_skip(name, "Gerät lief kurz vorher noch")
+        # nur Geräte, die Temperatur/Feuchte merklich ändern (GGS-Steckdosen ohne Rolle, Pumpe usw. stören nicht)
+        others = [m for m, x in self.outs.items() if m != name and not x.proportional and x.role in DEV_ROLES + ("fan", "timer")]
         if any(len({r.get(m) for r in before + after}) > 1 for m in others):
             return self._dev_skip(name, "ein anderes Gerät hat geschaltet")
         light = self.cfg["light"]

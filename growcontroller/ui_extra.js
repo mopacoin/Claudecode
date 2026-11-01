@@ -129,14 +129,16 @@ function renderEnergy() {
   const fmt = (v, d = 2) => v == null ? '–' : v.toFixed(d).replace('.', ',');
   const sum = a => a.reduce((x, y) => x + (y || 0), 0), n = enData.days.length, price = enData.price_ct / 100;
   const devs = enData.devices.filter(d => sum(d.kwh) > 0 || (d.on_min && sum(d.on_min) > 0)).sort((a, b) => sum(b.kwh) - sum(a.kwh));
-  const total = sum(enData.total_kwh), perDay = total / n, unknown = devs.filter(d => d.w == null && d.source !== 'gemessen');
+  // heute läuft noch: als angefangenen Tag zählen, sonst wäre der Tagesschnitt zu niedrig
+  const nd = n === 1 ? 1 : n - 1 + (Date.now() - new Date().setHours(0, 0, 0, 0)) / 864e5;
+  const total = sum(enData.total_kwh), perDay = total / nd, unknown = devs.filter(d => d.w == null && d.source !== 'gemessen');
   const max = Math.max(...devs.map(d => sum(d.kwh)), .001);
-  box.innerHTML = `<div class="row"><h3 class="sp" style="margin:0">${ico('flame')} Energie</h3>${[7, 30].map(k => `<button class="chip ${enDays === k ? 'on' : ''}" data-ed="${k}">${k} Tage</button>`).join('')}</div>
+  box.innerHTML = `<div class="row"><h3 class="sp" style="margin:0">${ico('flame')} Energie</h3>${[1, 7, 30].map(k => `<button class="chip ${enDays === k ? 'on' : ''}" data-ed="${k}">${k === 1 ? '24 h' : k + ' Tage'}</button>`).join('')}</div>
     <div class="row" style="gap:22px;margin:10px 0 4px;flex-wrap:wrap">
       <div><div class="sub">Ø pro Tag</div><b style="font-size:22px">${fmt(perDay)} kWh</b> <span class="sub">≈ ${fmt(perDay * price)} €</span></div>
       <div><div class="sub">hochgerechnet pro Monat</div><b style="font-size:22px">${fmt(perDay * 30 * price)} €</b></div>
       <div><div class="sub">Strompreis</div><div class="ig" style="width:140px"><input id="enPrice" type="number" step="0.1" min="0" max="200" value="${enData.price_ct}"><span>ct/kWh</span></div></div></div>
-    <p class="hint">Laufzeit × Leistung je Gerät, die Abluft gemessen. „Annahme“ ist ein Richtwert – trag die echte Leistung ein, wo du sie kennst${unknown.length ? `; <b style="color:var(--warn)">ohne Leistung: ${unknown.map(d => esc(LABEL[d.name] || d.name)).join(', ')}</b>` : ''}. Lampen zählen mit voller Leistung (Dimmung noch nicht berücksichtigt).</p>
+    <p class="hint">${n === 1 ? 'Die letzten 24 Stunden.' : `Summe über ${n} Tage (heute zählt erst bis jetzt).`} „gemessen“ = Meross-Messstecker (zwei Lampen an einem Stecker je zur Hälfte), sonst Laufzeit × Leistung. „Annahme“ ist ein Richtwert – trag die echte Leistung ein, wo du sie kennst${unknown.length ? `; <b style="color:var(--warn)">ohne Leistung: ${unknown.map(d => esc(LABEL[d.name] || d.name)).join(', ')}</b>` : ''}.</p>
     <div class="etable">${devs.map(d => { const k = sum(d.kwh); return `<div class="erow"><span>${esc(LABEL[d.name] || d.name)}</span>
       <div class="ebar"><i style="width:${k / max * 100}%"></i></div><b>${fmt(k)} kWh</b><span class="sub">${fmt(k * price)} €</span>
       ${d.source === 'gemessen' ? '<span class="sub">gemessen</span>' : `<div class="ig"><input data-pw="${esc(d.name)}" type="number" min="0" max="5000" step="1" value="${d.w ?? ''}" placeholder="?"><span>W</span></div>`}

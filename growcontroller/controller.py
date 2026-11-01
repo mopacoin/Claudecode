@@ -25,6 +25,11 @@ MAX_POINTS = 600
 EFF_BIN = 5           # Watt je Wirksamkeits-Fach
 EFF_WIN = 10          # so viele Minuten muss alles ruhig sein, bevor ein Wirksamkeits-Punkt zählt
 EFF_LIGHT_MIN = 30    # nach Licht an/aus so lange warten (Lampenwärme/Verdunstung schwingen erst ein)
+def _extra_col(k):
+    """Zusätzliche CSV-Spalte: Bodenwerte und gemessene Leistung (Meross-Stecker, "<prefix>w")."""
+    return "soil" in k or (k.endswith("_w") and k != "exhaust_w")
+
+
 DEV_ROLES = ("dehumidifier", "humidifier", "heater")
 FALLBACK_S = 90       # so lange ohne Werte vom Haupt-Sensor, bis ein Ersatzsensor einspringt
 GGS_ROLES = ("light", "fan", "heater", "humidifier", "dehumidifier", "pump", "vent", "intake")  # Modus "Growcontroller"
@@ -167,7 +172,7 @@ class Controller:
             try:
                 with open(path, newline="") as f:
                     rd = csv.DictReader(f)
-                    self._soil_cols = [k for k in rd.fieldnames or [] if "soil" in k]  # Spalten der neuesten Datei weiterführen
+                    self._soil_cols = [k for k in rd.fieldnames or [] if _extra_col(k)]  # Spalten der neuesten Datei weiterführen
                     for r in rd:
                         row = self._parse_row(r)
                         if row and datetime.fromisoformat(row["t"]) >= cutoff:
@@ -832,9 +837,9 @@ class Controller:
             self._append_csv(now, row)
 
     def _cols(self):
-        """CSV-Spalten: feste Klima-Werte, Bodenwerte (soil…, wachsen nur – sonst entstünde ständig eine neue Datei), Geräte."""
+        """CSV-Spalten: feste Klima-Werte, Boden- und Leistungswerte (soil…/…_w, wachsen nur – sonst entstünde ständig eine neue Datei), Geräte."""
         for k in sorted(self.readings):
-            if "soil" in k and k not in self._soil_cols:
+            if _extra_col(k) and k not in self._soil_cols:
                 self._soil_cols.append(k)
         return ["t", "temp", "hum", "vpd", "room_temp", "room_hum", "exhaust_w"] + self._soil_cols + list(self.outs)
 
@@ -1121,20 +1126,39 @@ class Controller:
         return None, None
 
     def energy(self, days=7):
-        """Verbrauch je Gerät und Tag in kWh: Laufzeit (Minuten an) × Leistung; Abluft gemessen (exhaust_w)."""
+        """Verbrauch je Gerät und Tag in kWh. Mit Messstecker ("meter": "<prefix>w", geteilt durch "meter_share")
+        gemessen, sonst Laufzeit × Leistung – je Minute, damit Tage vor dem Einbau des Steckers geschätzt bleiben.
+        days=1: die letzten 24 Stunden."""
         days = max(1, min(60, days))
-        dl = self._days(days)
-        per = {d: self._day_rows(d) for d in dl}
-        devs = []
+        if days == 1:
+            cut = (datetime.now() - timedelta(hours=24)).isoformat(timespec="seconds")
+            dl, per = ["24 h"], {"24 h": [r for d in self._days(2) for r in self._day_rows(d) if r["t"] >= cut]}
+        else:
+            dl = self._days(days)
+            per = {d: self._day_rows(d) for d in dl}
+        devs, used = [], {"exhaust_w"}
         for n, o in self.outs.items():
-            if o.proportional:
-                kwh = [round(sum(r.get("exhaust_w", 0) for r in per[d]) / 60 / 1000, 3) for d in dl]
-                devs.append({"name": n, "role": o.role, "w": None, "source": "gemessen" if any(kwh) else None, "kwh": kwh})
-                continue
-            w, src = self._power_of(n, o)
-            mins = [sum(1 for r in per[d] if r.get(n)) for d in dl]
-            devs.append({"name": n, "role": o.role, "w": w, "source": src, "on_min": mins,
-                         "kwh": [round(m * w / 60 / 1000, 3) if w is not None else None for m in mins]})
+            col = o.info.get("meter") or ("exhaust_w" if o.proportional else None)
+            share = float(o.info.get("meter_share", 1))
+            used.add(col)
+            w, src = (None, None) if o.proportional else self._power_of(n, o)
+            kwh, mins, measured = [], [], False
+            for d in dl:
+                wh = 0.0
+                for r in per[d]:
+                    if col in r:
+                        wh, measured = wh + r[col] * share / 60, True
+                    elif r.get(n) and w is not None:
+                        wh += w / 60
+                kwh.append(round(wh / 1000, 3) if measured or w is not None else None)
+                mins.append(sum(1 for r in per[d] if r.get(n)))
+            devs.append({"name": n, "role": o.role, "w": w, "source": "gemessen" if measured else src,
+                         "on_min": None if o.proportional else mins, "kwh": kwh})
+        for sn, sc in self.cfg["sensors"].items():  # Messstecker ohne geregeltes Gerät (z. B. zweites Zelt)
+            col = f"{sc.get('prefix', '')}w"
+            if sc.get("driver") == "meross_power" and col not in used:
+                devs.append({"name": sc.get("label") or sn, "role": None, "w": None, "source": "gemessen",
+                             "kwh": [round(sum(r.get(col, 0) for r in per[d]) / 60 / 1000, 3) for d in dl]})
         price = float((self.saved.get("energy") or {}).get("price_ct", 30))
         tot = [round(sum(d["kwh"][i] or 0 for d in devs), 3) for i in range(len(dl))]
         return {"days": dl, "devices": devs, "total_kwh": tot, "price_ct": price,

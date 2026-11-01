@@ -118,3 +118,32 @@ class TestStatsAndEnergy(unittest.TestCase):
             self.assertEqual((dev["w"], dev["source"]), (300.0, "eingetragen"))
             self.assertAlmostEqual(en["cost_eur"][i], round(1.8 * 0.40, 2))
             self.assertIn("0…200", ctl.set_energy({"price_ct": 999}))
+
+    def test_energy_from_meter(self):
+        from growcontroller import outputs
+        with tempfile.TemporaryDirectory() as tmp:
+            day = (datetime.now().date() - timedelta(days=1)).isoformat()
+            start = datetime.fromisoformat(day + "T00:00:00")
+            rows = []
+            for i in range(1440):   # Lampen 12 h an; Messstecker erst ab Stunde 6 (davor nur Laufzeit), zweites Zelt 100 W
+                t = start + timedelta(minutes=i)
+                r = {"t": t.isoformat(timespec="seconds"), "temp": 25, "hum": 60, "links": int(i < 720), "veg_w": 100}
+                if i >= 360:
+                    r["lampen_w"] = 300 if i < 720 else 0
+                rows.append(r)
+            self.write_day(tmp, day, rows, ["t", "temp", "hum", "links", "lampen_w", "veg_w"])
+            ctl = make(tmp)
+            ctl.cfg["sensors"]["veg"] = {"driver": "meross_power", "prefix": "veg_", "label": "Veg-Zelt"}
+
+            class Rec:
+                def set(self, v): pass
+                def close(self): pass
+            ctl.outs["links"] = outputs.Output("links", Rec(), role="manual", info={"meter": "lampen_w", "meter_share": 0.5})
+            ctl.saved["power"] = {"links": 200}
+            en = ctl.energy(2)
+            i = en["days"].index(day)
+            dev = {d["name"]: d for d in en["devices"]}
+            self.assertEqual(dev["links"]["source"], "gemessen")
+            self.assertAlmostEqual(dev["links"]["kwh"][i], 6 * 0.2 + 6 * 0.15)   # 6 h geschätzt + 6 h halbe Messung
+            self.assertAlmostEqual(dev["Veg-Zelt"]["kwh"][i], 2.4)
+            self.assertEqual(ctl.energy(1)["days"], ["24 h"])

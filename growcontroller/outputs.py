@@ -152,8 +152,10 @@ def create_all(cfg):
             # Kompressorschutz: mindestens 10 min an bzw. aus (abschaltbar mit "compressor_protect": false)
             common["min_switch_s"] = max(common.get("min_switch_s", 0), COMPRESSOR_MIN_S)
         common["proportional"] = bool(c.pop("proportional", typ == "mqtt_servo"))
+        meter = {k: c.pop(k) for k in ("meter", "meter_share", "power_w") if k in c}  # nur für die Auswertung, nicht fürs Backend
         secret = ("key", "local_key", "password")
-        common["info"] = {"type": typ, **{k: v for k, v in c.items() if k not in secret}, **{k: common[k] for k in ("min_switch_s", "max_on_s") if k in common}}
+        common["info"] = {"type": typ, **{k: v for k, v in c.items() if k not in secret}, **meter,
+                          **{k: common[k] for k in ("min_switch_s", "max_on_s") if k in common}}
         try:
             be = _make_backend(typ, c, cfg, gpio, hub)
         except Exception as e:

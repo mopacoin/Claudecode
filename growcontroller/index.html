@@ -1009,14 +1009,14 @@ function renderSmart() {
     const o = S.outputs[n] || {}, why = sm.reasons?.[d.role];
     const eff = d.n ? `${sg(d.t)} °C/h · ${sg(d.ah)} g/m³/h <span class="sub">(${d.n}×)</span>` : `<span class="sub">noch nicht gelernt${d.skip ? ' – zuletzt: ' + esc(d.skip) : ''}</span>`;
     return `<div class="srow"><div><b>${esc(n)}</b> <span class="chip ${o.state ? 'on' : ''}" style="margin-left:6px">${o.state ? 'EIN' : 'AUS'}</span>
-        <div class="sub">${ROLE_DE[d.role] || d.role} · ${Math.round(d.power_w)} W${o.mode !== 'auto' ? ` · Hand: ${o.mode === 'on' ? 'Ein' : 'Aus'}` : ''}</div></div>
+        <div class="sub">${ROLE_DE[d.role] || d.role} · ${Math.round(d.power_w)} W ${d.measured ? 'gemessen' : '(Annahme)'}${o.mode !== 'auto' ? ` · Hand: ${o.mode === 'on' ? 'Ein' : 'Aus'}` : ''}</div></div>
       <div>${why ? esc(why) : o.mode !== 'auto' ? '<span class="sub">manuell – Logik pausiert</span>' : '<span class="sub">–</span>'}</div>
       <div><span class="sub">Wirkung: </span>${eff}</div></div>`; }).join('');
   card.innerHTML = `<div class="row"><h3 class="sp" style="margin:0">${ico('grid')} Klima-Logik</h3><span class="sub">${sm.logic === 'smart' ? 'intelligent' : 'feste Schwellen'}</span></div>
     <div class="sub" style="margin:10px 0">${tr.dT != null ? `Trend: <b style="color:var(--temp)">${sg(tr.dT)} °C/h</b> · <b style="color:var(--hum)">${sg(tr.dAH)} g/m³/h</b>` : 'Trend: sammelt noch Messwerte (5 min)'}
       ${f ? ` · Prognose in ${f.min} min: <b style="color:var(--text)">${f.temp} °C / ${f.hum} %</b>` : ''}</div>
     <div>${rows}</div>
-    <p class="hint" style="margin:10px 0 0">Gelernte Wirkung: Nach jedem Einschalten vergleicht der Controller den Trend 10 min vorher mit dem Trend ab Minute 3 – nur wenn sonst nichts geschaltet hat und das Licht gleich blieb. Negativ = senkt, positiv = erhöht.</p>`;
+    <p class="hint" style="margin:10px 0 0">Gelernte Wirkung: Nach jedem Einschalten vergleicht der Controller den Trend der 10 min davor (Gerät aus) mit dem Trend ab Minute 3 bis zum Ausschalten (höchstens 15 min, mindestens 3 Messwerte). Gezählt wird nur, wenn kein anderes Klimagerät (Heizung, Entfeuchter, Befeuchter, Lüfter, Infrarot/UVA) geschaltet hat und das Licht gleich blieb – Abluft und Steckdosen ohne Rolle stören nicht. Negativ = senkt, positiv = erhöht. Watt: Ø laut Messstecker, solange das Gerät lief (letzte 7 Tage), sonst eingetragener Wert.</p>`;
 }
 
 // ---- Abluft-Wirksamkeit (gelernt: Abstand Zelt–Raum je Leistung) ----

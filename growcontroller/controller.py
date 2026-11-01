@@ -961,7 +961,8 @@ class Controller:
                             "effect": self._effect_status()},
                 "smart": {**self.smart, "trend": self._trend(), "logic": self.cfg["climate"].get("logic", "smart"),
                           "devices": {n: {**self.dev_eff.get(n, {"n": 0}), "role": o.role,
-                                          "power_w": float(o.info.get("power_w", DEV_POWER[o.role]))}
+                                          "power_w": self._measured_w(n, o) or float(o.info.get("power_w", DEV_POWER[o.role])),
+                                          "measured": self._measured_w(n, o) is not None}
                                       for n, o in self.outs.items() if o.role in DEV_ROLES and not o.proportional}},
                 "stats": self.stats(), "alarms": [{"id": k, **v} for k, v in self.alarms.items()],
                 "grow": {**self._grow_status(g, gday), "starts_in": starts_in},

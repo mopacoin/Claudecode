@@ -236,7 +236,7 @@ class TestLink(unittest.TestCase):
 
     def test_heater_stage(self):
         from growcontroller import rules
-        self.assertEqual([rules.heater_stage(t, 22, 1) for t in (22.5, 21.9, 21, 20, 18)], [1, 1, 5, 10, 10])
+        self.assertEqual([rules.heater_stage(t, 22, 1) for t in (22.5, 21.9, 21.6, 21.4, 18)], [1, 1, 1, 10, 10])
 
     def test_output_type_registered(self):
         _, outs, _ = outputs.create_all({"outputs": {"o5": {"type": "spiderfarmer", "mac": "80:F1:B2:B1:C7:F2", "outlet": 5}}})

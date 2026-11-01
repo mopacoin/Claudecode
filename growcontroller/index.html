@@ -550,7 +550,7 @@ function renderHeat() {  // Spider-Farmer-Heizer: Regler 0 = Automatik, 1–10 =
     return `<div style="margin-top:12px"><div class="row"><b>${esc(LABEL[n] || n)}</b><span class="sp"></span><b style="font-size:20px" data-hv="${esc(n)}">${h.fixed ? 'Stufe ' + h.fixed : 'Auto'}</b></div>
       <input type="range" min="0" max="10" step="1" value="${h.fixed || 0}" data-heat="${esc(n)}" aria-label="Heizstufe ${esc(n)}">
       <div class="sub">${o.ok === false ? '<span style="color:var(--bad)">nicht erreichbar</span>' : o.state ? `heizt · Heizer meldet <b style="color:var(--text)">Stufe ${h.actual ?? '?'}</b>` : 'aus'}${o.mode !== 'auto' ? ` · Modus ${o.mode === 'on' ? 'Ein' : 'Aus'}` : ''}</div></div>`;
-  }).join('') + `<p class="hint" style="margin:10px 0 0">Ganz links = Auto: Stufe nach Abstand zum Temperaturziel (knapp drunter 1, ab 2 × Hysterese drunter ${H[0][1].heat.max}). Sonst feste Stufe, solange die Heizregel heizt.</p>`;
+  }).join('') + `<p class="hint" style="margin:10px 0 0">Ganz links = Auto: weit unter dem Ziel volle Leistung (Stufe ${H[0][1].heat.max}, ≈ 500 W), in der letzten halben Hysterese sanft mit Stufe 1 (≈ 100 W). Gemessen: Stufe 2–10 ziehen alle ≈ 500 W. Sonst feste Stufe, solange die Heizregel heizt.</p>`;
 }
 $('#heatCard').addEventListener('input', e => {
   const r = e.target.closest('input[data-heat]'); if (!r) return;

@@ -100,10 +100,11 @@ def hysteresis_high(value, current, low, high):
 
 
 def heater_stage(temp, target, hyst):
-    """Heizstufe 1–10: knapp unter dem Ziel 1, ab zwei Hysteresen darunter 10."""
+    """Heizstufe: gemessen zieht Stufe 1 ≈ 100 W, Stufe 2–10 alle ≈ 500 W (die Stufe ändert kaum die Leistung).
+    Daher: weit unter dem Ziel volle Leistung, in der letzten halben Hysterese sanft mit Stufe 1 – weniger Überschwingen."""
     if temp is None:
         return 1
-    return max(1, min(10, 1 + round(9 * (target - temp) / (2 * hyst))))
+    return 1 if target - temp < hyst / 2 else 10
 
 
 def climate(cfg, day, temp, hum, cur, now, has_dehum=False):
@@ -443,7 +444,8 @@ def smart_climate(cfg, day, temp, hum, cur, now, ctx):
     h = cfg.get("lookahead_min", 10) / 60
     ah = abs_hum(temp, hum)
     tf = temp + (tr.get("dT") or 0) * h
-    hf = min(100.0, max(0.0, rh_at(tf, ah + (tr.get("dAH") or 0) * h)))
+    ahf = ah + (tr.get("dAH") or 0) * h
+    hf = min(100.0, max(0.0, rh_at(tf, ahf)))
     want, why = dict(base), {}
 
     # Heizung (Abwärme des Entfeuchters steckt schon im gemessenen Trend)
@@ -453,6 +455,12 @@ def smart_climate(cfg, day, temp, hum, cur, now, ctx):
         else:
             want["heater"] = tf < tt - th or temp <= tt - 2 * th
         why["heater"] = f"heizt bis Prognose ≥ {tt:g} °C" if want["heater"] else f"aus – Prognose {tf:.1f} °C reicht"
+        if want["heater"]:
+            # Die Heizung bringt die Luft ohnehin aufs Ziel – und senkt dabei die relative Feuchte. Feuchte so bewerten,
+            # wie sie bei Zieltemperatur ist; sonst entfeuchtet der Entfeuchter, was die Heizung gratis erledigt.
+            hum, hf = min(100.0, rh_at(tt, ah)), min(100.0, rh_at(tt, ahf))
+            if cfg.get("control") == "vpd":
+                ht, hh = rh_for_vpd(tt, cfg[f"vpd_{p}"], cfg["leaf_offset"]), rh_delta_for_vpd(tt, cfg["vpd_hyst"])
 
     # Entfeuchter: Abluft oder Entfeuchter? Nach Leistung gewichtet, Nebenwirkung auf die Temperatur zählt mit
     prefer_ex = False

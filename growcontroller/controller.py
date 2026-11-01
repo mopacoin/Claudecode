@@ -642,13 +642,22 @@ class Controller:
     def _dev_skip(self, name, why):
         self.dev_eff.setdefault(name, {"t": None, "ah": None, "n": 0})["skip"] = why
 
+    def _measured_w(self, n, o):
+        """Ø Leistung laut Messstecker, während das Gerät lief (letzte 7 Tage), oder None."""
+        col = o.info.get("meter")
+        if not col:
+            return None
+        share = float(o.info.get("meter_share", 1))
+        v = [r[col] * share for r in self.minutes if r.get(n) and r.get(col, 0) > 5]
+        return round(sum(v) / len(v), 1) if len(v) >= 10 else None
+
     def _smart_ctx(self, day, h_target):
         """Alles, was die Klima-Logik zum Abwägen braucht: Trend, Geräte mit Leistung und gelernter Wirkung, Abluft-Reserve."""
         devs = {}
         for n, o in self.outs.items():
             if o.role in DEV_ROLES and o.role not in devs and o.mode == "auto":
                 e = self.dev_eff.get(n, {})
-                devs[o.role] = {"name": n, "power_w": float(o.info.get("power_w", DEV_POWER[o.role])),
+                devs[o.role] = {"name": n, "power_w": self._measured_w(n, o) or float(o.info.get("power_w", DEV_POWER[o.role])),
                                 "t": e.get("t") if e.get("n") else None, "ah": e.get("ah") if e.get("n") else None, "n": e.get("n", 0)}
         ex, r = self.cfg["exhaust"], self.readings
         o = next((x for x in self.outs.values() if x.proportional), None)

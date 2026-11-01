@@ -55,6 +55,15 @@ class TestSmartRules(unittest.TestCase):
         self.assertTrue(dec(23.0, 67, ex=ex)[0]["dehumidifier"])     # zu kalt: Entfeuchter-Abwärme willkommen
         self.assertFalse(dec(27.0, 67, ex=ex)[0]["dehumidifier"])    # zu warm: Abluft kühlt und trocknet
 
+    def test_heating_counts_as_drying(self):
+        devs = {**DEH, "heater": {"power_w": 500}}
+        # 23 °C bei 69 %: bei 25 °C wären es ≈ 61 % – die Heizung erledigt das, der Entfeuchter bleibt aus
+        w, info = dec(23.0, 69, devs=devs)
+        self.assertTrue(w["heater"])
+        self.assertFalse(w["dehumidifier"])
+        self.assertTrue(dec(23.0, 69, devs=DEH)[0]["dehumidifier"])   # ohne Heizung: Entfeuchter nötig
+        self.assertTrue(dec(23.0, 80, devs=devs)[0]["dehumidifier"])  # auch nach dem Aufheizen zu feucht
+
     def test_heater_and_humidifier(self):
         devs = {"heater": {"power_w": 300}, "humidifier": {"power_w": 30}}
         self.assertFalse(dec(24.2, 60, devs=devs)[0]["heater"])

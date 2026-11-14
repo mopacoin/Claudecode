@@ -352,7 +352,7 @@ const FORMS = {
     {k: 'interlock_hum', l: 'Befeuchter läuft → Abluft auf Grundlast', t: 'bool'}, {k: 'interlock_heat', l: 'Heizung läuft → Abluft auf Grundlast', t: 'bool'},
     {k: 'temp_priority', l: 'Temperatur hat Vorrang (zu heiß → Abluft darf trotzdem hoch)', t: 'bool'},
     {k: 'cold_protect', l: 'Kälteschutz: unter Soll-Temperatur entfeuchtet die Abluft nicht (Entfeuchter übernimmt)', t: 'bool'},
-    {k: 'cold_hum_max', l: 'Feuchte hat Vorrang vor dem Kälteschutz ab', u: '%', step: 1},
+    {k: 'cold_hum_max', l: 'Feuchte-Obergrenze: 1 % davor volle Abluft (vor Kälteschutz und Kopplungen)', u: '%', step: 1},
     {k: 'ramp_w_min', l: 'Sanfte Rampe: max. Änderung (0 = aus)', u: 'W/min', step: 1},
     {k: 'auto_learn', l: 'Kennlinie im Betrieb automatisch nachlernen (braucht Leistungsmessung)', t: 'bool'},
     {k: 'intake_pct', l: 'Zuluft an ab Abluft-Leistung (0 = Zuluft folgt Lüfterbedarf)', u: '%', step: 5},

@@ -269,7 +269,7 @@ class TestColdProtection(unittest.TestCase):
         return rules.exhaust_plan({**self.ex, **kw}, True, temp, hum, 24, 55)
 
     def test_cold_keeps_base_load(self):
-        w, notes = self.plan(21.8, 59)                     # 2,2 °C zu kalt, 4 % zu feucht, unter 60 %
+        w, notes = self.plan(21.8, 58)                     # 2,2 °C zu kalt, 3 % zu feucht, unter 59 %
         self.assertEqual(w, self.ex["min_w"])
         self.assertEqual([n["key"] for n in notes], ["cold"])
 
@@ -288,6 +288,16 @@ class TestColdProtection(unittest.TestCase):
         self.assertEqual(self.plan(21.8, 62, cold_hum_max=65)[0], self.ex["min_w"])   # Grenze einstellbar
         self.assertFalse(rules.too_cold(self.ex, 21.8, 24, 61))
         self.assertTrue(rules.too_cold(self.ex, 21.8, 24, 60))
+
+    def test_hard_cap_beats_dehumidifier_interlock(self):
+        # Nacht 14.11.: Entfeuchter an (pausiert), Zelt 20 °C/59 %, Raum 20,3 °C/49 % -> volle Abluft
+        ex = dict(self.ex, room_aware=True)
+        w, _ = rules.exhaust_plan(ex, False, 20.0, 59, 24, 58, 20.3, 49, active=("dehumidifier",), dehum_min=600)
+        self.assertEqual(w, ex["max_w_night"])
+        w, _ = rules.exhaust_plan(ex, False, 20.0, 57, 24, 58, 20.3, 49, active=("dehumidifier",), dehum_min=600)
+        self.assertEqual(w, ex["min_w"])                  # darunter bleibt die Kopplung
+        w, _ = rules.exhaust_plan(ex, False, 20.0, 59, 24, 58, 20.3, 70, active=("dehumidifier",), dehum_min=600)
+        self.assertEqual(w, ex["min_w"])                  # Raumluft feuchter: Abluft nutzlos
 
     def test_can_be_switched_off(self):
         self.assertGreater(self.plan(21.8, 59, cold_protect=False)[0], self.ex["min_w"])

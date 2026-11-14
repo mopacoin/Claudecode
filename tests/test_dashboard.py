@@ -243,7 +243,7 @@ class TestHistoryFiles(unittest.TestCase):
 
 
 class TestInterlock(unittest.TestCase):
-    EX = {**settings.DEFAULTS["exhaust"]}
+    EX = {**settings.DEFAULTS["exhaust"], "cold_hum_max": 95}  # Obergrenze aus dem Weg, hier geht es um die Kopplung
 
     def test_dehumidifier_blocks_humidity_exhaust(self):
         free, _ = rules.exhaust_plan(self.EX, True, 25, 70, 25, 60)

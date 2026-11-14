@@ -321,6 +321,10 @@ def exhaust_plan(cfg, day, temp, hum, t_target, h_target, room_t=None, room_h=No
                 ft = 0
                 ff.pop("temp", None)
             notes.append({"key": "interlock", "dev": dev, "assist": False})
+    # Harte Obergrenze `cold_hum_max`: schon 1 % davor volle Abluft, egal welche Kopplung (der Entfeuchter pausiert
+    # z. B. regelmäßig, dann steigt die Feuchte in Minuten um 4 %). Nur wenn die Raumluft überhaupt trockener macht.
+    if hum is not None and hum >= cfg.get("cold_hum_max", 60) - 1 and not any(n["key"] == "hum" and n["useless"] for n in notes):
+        fh = max(fh, 1.0)
     span = max(hi, lo) - lo
 
     def part(f, base):

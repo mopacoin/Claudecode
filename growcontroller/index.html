@@ -1381,11 +1381,10 @@ $('#timers').addEventListener('change', e => {
 
 // ---- Zyklen ----
 function presetSummary(p) {
-  const c = p.climate || {}, li = p.light || {}, ir = p.irrigation || {}, nx = p.next && CFG.presets[p.next];
+  const c = p.climate || {}, ir = p.irrigation || {}, nx = p.next && CFG.presets[p.next];
   return `<ul>${c.temp_day != null ? `<li>Temperatur <b>${c.temp_day} / ${c.temp_night ?? '–'} °C</b></li>` : ''}
     ${c.hum_day != null ? `<li>Luftfeuchte <b>${c.hum_day} / ${c.hum_night ?? '–'} %</b></li>` : ''}
     ${c.vpd_day != null ? `<li>VPD <b>${c.vpd_day} / ${c.vpd_night ?? '–'} kPa</b></li>` : ''}
-    ${li.enabled === false ? '<li><b>Licht aus</b></li>' : li.on ? `<li>Licht <b>${li.on} – ${li.off}</b></li>` : ''}
     ${ir.interval_min ? `<li>Gießen <b>alle ${ir.interval_min} min · ${ir.duration_s} s</b></li>` : ''}
     ${p.days ? `<li>Dauer <b>${p.days} Tage</b>${nx ? ` → <b>${esc(nx.label)}</b>` : ''}</li>` : ''}</ul>`;
 }
@@ -1414,7 +1413,7 @@ $('#presets').onclick = async e => {
       S = await api('/api/status'); toast('Zyklus gelöscht'); renderAll(true);
     }
     if (b.dataset.act === 'apply') {
-      if (!confirm(`Zyklus „${p.label}“ anwenden? Klima-, Licht- und Bewässerungswerte werden überschrieben, der Zyklus startet heute.`)) return;
+      if (!confirm(`Zyklus „${p.label}“ anwenden? Klima- und Bewässerungswerte werden überschrieben (Lichtplan bleibt), der Zyklus startet heute.`)) return;
       const r = await api('/api/presets/' + encodeURIComponent(k) + '/apply', {}); CFG.values = r.values; CFG.presets = r.presets;
       toast(p.label + ' angewendet ✓'); S = await api('/api/status'); renderAll(true);
     }
@@ -1435,7 +1434,7 @@ function openEditor(p, id) {
       ${meta('days', 'Dauer (0 = unbegrenzt)', `<div class="ig"><input type="number" name="days" min="0" max="365" value="${base.days || 0}"><span>Tage</span></div>`)}
       ${meta('next', 'Danach automatisch wechseln zu', `<div class="ig"><select name="next"><option value="">– kein Wechsel –</option>${others.map(([k, o]) => `<option value="${k}" ${base.next === k ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>`)}
     </div>${meta('notes', 'Notizen', `<div class="ig"><input name="notes" maxlength="300" value="${esc(base.notes || '')}" placeholder="optional"></div>`)}
-    ${sec('Klima', 'climate')}${sec('Licht', 'light')}${sec('Bewässerung', 'irrigation')}</div>
+    ${sec('Klima', 'climate')}${sec('Bewässerung', 'irrigation')}</div>
     <div class="dlg-f"><button type="button" class="sec" data-x>Abbrechen</button><button class="pri" type="submit">Speichern</button></div></form>`;
   const form = $('#ed'); bindVis(form);
   form.querySelectorAll('[data-x]').forEach(b => b.onclick = () => dlg.close());
@@ -1444,7 +1443,7 @@ function openEditor(p, id) {
     ev.preventDefault(); form.querySelectorAll('.fld').forEach(e => e.classList.remove('bad')); form.querySelectorAll('.err').forEach(e => e.textContent = '');
     const body = {label: form.elements.label.value, color, notes: form.elements.notes.value, days: Number(form.elements.days.value) || 0, next: form.elements.next.value};
     if (id) body.id = id;
-    for (const s of ['climate', 'light', 'irrigation']) { body[s] = {};
+    for (const s of ['climate', 'irrigation']) { body[s] = {};
       FORMS[s].fields.filter(f => !f.dim || hasDim()).forEach(f => { const el = form.elements[`${s}.${f.k}`], t = f.t || 'num'; body[s][f.k] = t === 'bool' ? el.checked : t === 'num' ? parseFloat(el.value) : el.value; }); }
     try {
       const r = await api('/api/presets', body); CFG.presets = r.presets; dlg.close();

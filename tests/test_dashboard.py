@@ -97,6 +97,7 @@ class TestCycles(unittest.TestCase):
             self.assertFalse(c.presets()[pid]["builtin"]); self.assertTrue(c.presets()["veg"]["builtin"])
             new, err = c.apply_preset(pid)
             self.assertFalse(err); self.assertEqual(new["climate"]["temp_day"], 23.5)
+            self.assertEqual(new["light"]["on"], "06:00")  # Lichtplan nur von Hand, Zyklus ändert ihn nie
             self.assertEqual(c.cfg["grow"]["stage"], pid); self.assertEqual(c.status()["grow"]["label"], "Mein Zyklus")
             pid2, err = c.save_preset({**self.BODY, "id": pid, "label": "Umbenannt"}); self.assertEqual(pid2, pid)
             self.assertEqual(c.presets()[pid]["label"], "Umbenannt")

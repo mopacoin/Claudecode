@@ -1060,14 +1060,13 @@ class Controller:
             return True
 
     def apply_preset(self, pid, start=None):
-        """Übernimmt Klima/Licht/Bewässerung eines Zyklus. -> (settings, fehler)"""
+        """Übernimmt Klima/Bewässerung eines Zyklus. Der Lichtplan wird nur von Hand gestellt, nie per Zyklus.
+        -> (settings, fehler)"""
         with self.lock:
             p = self.presets().get(pid)
             if not p:
                 return None, {"": "unbekannter Zyklus"}
-            patch = {s: dict(p[s]) for s in ("climate", "light", "irrigation") if s in p}
-            if "light" in patch and "enabled" not in patch["light"]:
-                patch["light"]["enabled"] = True
+            patch = {s: dict(p[s]) for s in ("climate", "irrigation") if s in p}
             patch["grow"] = {"stage": pid, "start_date": start or datetime.now().strftime("%Y-%m-%d")}
             new, errors = self.update_settings(patch)
             if not errors:
